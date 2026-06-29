@@ -1,0 +1,11 @@
+flask
+torch
+faster_whisper
+pyaudio
+transformers
+huggingface_hub
+peft
+accelerate
+bitsandbytes
+datasets
+
