@@ -1,0 +1,7 @@
+venv312/
+3. Deployment/venv312/
+.env
+__pycache__/
+*.db
+3. Deployment/audio.wav
+3. Deployment/uploads/

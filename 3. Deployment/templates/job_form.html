@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{% if job %}Edit Job{% else %}Create Job{% endif %} - AI Interview Platform</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 20px;
+        }
+        .form-container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .form-card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+        .form-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 25px 30px;
+            color: white;
+        }
+        .form-header h2 {
+            margin: 0;
+            font-weight: 700;
+        }
+        .form-body {
+            padding: 30px;
+        }
+        .form-group label {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+        }
+        .form-control {
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 12px 15px;
+            font-size: 14px;
+        }
+        .form-control:focus {
+            border-color: #667eea;
+            box-shadow: none;
+        }
+        .form-control-plaintext {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 12px 15px;
+        }
+        .btn-submit {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            border-radius: 10px;
+            padding: 12px 30px;
+            color: white;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        .btn-submit:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+        .btn-cancel {
+            background: #6c757d;
+            border: none;
+            border-radius: 10px;
+            padding: 12px 25px;
+            color: white;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        .btn-cancel:hover {
+            background: #5a6268;
+        }
+        .alert {
+            border-radius: 10px;
+            border: none;
+        }
+        .weightage-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 15px;
+            margin-top: 20px;
+        }
+        .weightage-section h5 {
+            color: #333;
+            margin-bottom: 15px;
+        }
+        .weightage-inputs {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        .weightage-input {
+            flex: 1;
+            min-width: 150px;
+        }
+        .weightage-input label {
+            font-size: 13px;
+            color: #666;
+        }
+        .help-text {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="form-container">
+        <div class="form-card">
+            <div class="form-header">
+                <h2><i class="fas fa-briefcase mr-3"></i>{% if job %}Edit Job{% else %}Create Job{% endif %}</h2>
+            </div>
+            <div class="form-body">
+                {% if error %}
+                <div class="alert alert-danger" role="alert">
+                    <i class="fas fa-exclamation-triangle mr-2"></i>{{ error }}
+                </div>
+                {% endif %}
+                
+                <form method="POST">
+                    <div class="form-group">
+                        <label for="title">Job Title *</label>
+                        <input type="text" class="form-control" id="title" name="title" required placeholder="e.g., Senior Software Engineer" value="{% if job %}{{ job.title }}{% endif %}">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="company">Company *</label>
+                        <input type="text" class="form-control" id="company" name="company" required placeholder="e.g., Tech Corp" value="{% if job %}{{ job.company }}{% endif %}">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="location">Location</label>
+                        <input type="text" class="form-control" id="location" name="location" placeholder="e.g., New York, NY or Remote" value="{% if job %}{{ job.location }}{% endif %}">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="description">Job Description</label>
+                        <textarea class="form-control" id="description" name="description" rows="5" placeholder="Describe the role, responsibilities, and requirements...">{% if job %}{{ job.description }}{% endif %}</textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="required_skills">Required Skills</label>
+                        <input type="text" class="form-control" id="required_skills" name="required_skills" placeholder="e.g., Python, JavaScript, SQL, Machine Learning (comma-separated)" value="{% if job %}{{ job.required_skills_list|join(', ') }}{% endif %}">
+                        <small class="help-text">Enter skills separated by commas</small>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="minimum_experience">Minimum Experience (years)</label>
+                                <input type="number" class="form-control" id="minimum_experience" name="minimum_experience" min="0" value="{% if job %}{{ job.minimum_experience }}{% else %}0{% endif %}">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="minimum_education">Minimum Education</label>
+                                <select class="form-control" id="minimum_education" name="minimum_education">
+                                    <option value="">Not specified</option>
+                                    <option value="High School" {% if job and job.minimum_education == 'High School' %}selected{% endif %}>High School</option>
+                                    <option value="Bachelor's Degree" {% if job and job.minimum_education == "Bachelor's Degree" %}selected{% endif %}>Bachelor's Degree</option>
+                                    <option value="Master's Degree" {% if job and job.minimum_education == "Master's Degree" %}selected{% endif %}>Master's Degree</option>
+                                    <option value="PhD" {% if job and job.minimum_education == 'PhD' %}selected{% endif %}>PhD</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="weightage-section">
+                        <h5><i class="fas fa-balance-scale mr-2"></i>Scoring Weightage</h5>
+                        <p class="help-text mb-3">Total must equal 100%</p>
+                        <div class="weightage-inputs">
+                            <div class="weightage-input">
+                                <label for="weight_skills">Skills (%)</label>
+                                <input type="number" class="form-control" id="weight_skills" name="weight_skills" min="0" max="100" value="{% if job %}{{ job.weight_skills }}{% else %}40{% endif %}">
+                            </div>
+                            <div class="weightage-input">
+                                <label for="weight_experience">Experience (%)</label>
+                                <input type="number" class="form-control" id="weight_experience" name="weight_experience" min="0" max="100" value="{% if job %}{{ job.weight_experience }}{% else %}30{% endif %}">
+                            </div>
+                            <div class="weightage-input">
+                                <label for="weight_education">Education (%)</label>
+                                <input type="number" class="form-control" id="weight_education" name="weight_education" min="0" max="100" value="{% if job %}{{ job.weight_education }}{% else %}30{% endif %}">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between mt-4">
+                        <a href="/admin/jobs" class="btn btn-cancel"><i class="fas fa-times mr-2"></i>Cancel</a>
+                        <button type="submit" class="btn btn-submit"><i class="fas fa-save mr-2"></i>{% if job %}Update Job{% else %}Create Job{% endif %}</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

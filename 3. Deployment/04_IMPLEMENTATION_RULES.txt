@@ -1,0 +1,489 @@
+# IMPLEMENTATION RULES - AI Interview Platform
+
+## CORE PRINCIPLE
+
+### Implement Only ONE Feature at a Time
+- **Rule**: Never implement multiple features in a single commit
+- **Reason**: Easier to test, debug, and rollback
+- **Implementation**: Complete one feature, test it, commit it, then move to next
+- **Example**: Don't add authentication and job management in same commit
+
+---
+
+## PRE-IMPLEMENTATION CHECKLIST
+
+Before implementing any feature:
+
+### 1. Understand the Requirement
+- [ ] Read the feature description completely
+- [ ] Understand the expected behavior
+- [ ] Identify dependencies
+- [ ] Estimate time and complexity
+
+### 2. Review Existing Code
+- [ ] Read related files
+- [ ] Understand current implementation
+- [ ] Identify integration points
+- [ ] Check for potential conflicts
+
+### 3. Plan the Implementation
+- [ ] List files to modify
+- [ ] List files to create
+- [ ] Identify breaking changes
+- [ ] Plan testing approach
+
+### 4. Get Approval
+- [ ] Confirm with stakeholder
+- [ ] Discuss potential risks
+- [ ] Agree on implementation approach
+- [ ] Set timeline expectations
+
+---
+
+## IMPLEMENTATION RULES
+
+### Rule 1: Do Not Modify Unrelated Files
+- **Rule**: Only modify files directly related to the feature being implemented
+- **Reason**: Prevents unintended side effects
+- **Example**: When adding authentication, don't modify resume parser
+
+**Implementation Process**:
+1. Identify all files that need modification
+2. List them in implementation plan
+3. Only modify those files
+4. If you need to touch unrelated file, reconsider approach
+
+**Violation Example**:
+```
+❌ Adding authentication but also modifying resume_parser.py
+✅ Adding authentication only: app.py, database.py, templates/login.html
+```
+
+---
+
+### Rule 2: Preserve Existing Functionality
+- **Rule**: New features must not break existing features
+- **Reason**: Prevents regression, maintains user trust
+- **Implementation**:
+  - Add new features as additions
+  - Keep old routes working
+  - Use feature flags for major changes
+  - Test existing functionality after changes
+
+**Testing Checklist**:
+- [ ] Test existing interview flow
+- [ ] Test resume upload
+- [ ] Test admin dashboard
+- [ ] Test AI scoring
+- [ ] Test streaming responses
+
+**Violation Example**:
+```
+❌ Removing /get route when adding /get_stream
+✅ Keeping /get route working while adding /get_stream
+```
+
+---
+
+### Rule 3: Explain Why Changes Are Needed
+- **Rule**: Document the reason for every change
+- **Reason**: Future maintainability, code review
+- **Implementation**:
+  - Add comments explaining complex logic
+  - Update commit messages with reasoning
+  - Document breaking changes
+  - Add migration notes
+
+**Comment Example**:
+```python
+# Moved from global variable to session storage to support multi-user access
+# Previous implementation caused data leakage between concurrent users
+if 'interview_state' not in session:
+    session['interview_state'] = {}
+```
+
+**Commit Message Example**:
+```
+feat: add user authentication
+
+- Added User model to database for credential storage
+- Implemented Flask-Login for session management
+- Created login/register pages
+- Protected admin routes with @login_required
+- Breaking change: requires users to login before accessing interview
+
+Reason: Security enhancement, professional user management
+```
+
+---
+
+### Rule 4: List Files Modified
+- **Rule**: Always list all files modified in implementation
+- **Reason**: Transparency, easier code review, rollback capability
+- **Implementation**:
+  - List files at start of implementation
+  - List files in commit message
+  - Update documentation
+  - Track file changes
+
+**File List Format**:
+```
+Files Modified:
+1. app.py - Added authentication routes
+2. database.py - Added User model
+3. templates/login.html - Created login page
+4. templates/register.html - Created register page
+5. requirements.txt - Added Flask-Login
+
+Files Created:
+1. templates/login.html
+2. templates/register.html
+```
+
+---
+
+### Rule 5: Stop After Implementation
+- **Rule**: Complete one feature, then stop and wait for approval
+- **Reason**: Allows testing, feedback, and course correction
+- **Implementation**:
+  - Implement single feature
+  - Test thoroughly
+  - Commit changes
+  - Wait for stakeholder approval
+  - Only then proceed to next feature
+
+**Process Flow**:
+1. Implement feature
+2. Test feature
+3. Commit feature
+4. Present to stakeholder
+5. Wait for approval
+6. Only then start next feature
+
+**Violation Example**:
+```
+❌ Implementing authentication, then immediately starting job management
+✅ Implementing authentication, testing, getting approval, then starting job management
+```
+
+---
+
+### Rule 6: Wait for Approval Before Moving to Next Feature
+- **Rule**: Always get stakeholder approval before proceeding
+- **Reason**: Ensures alignment, allows course correction
+- **Implementation**:
+  - Present completed feature
+  - Demonstrate functionality
+  - Address feedback
+  - Get explicit approval
+  - Document approval
+
+**Approval Checklist**:
+- [ ] Feature demonstrated working
+- [ ] Stakeholder reviewed changes
+- [ ] Feedback addressed
+- [ ] Explicit approval received
+- [ ] Approval documented
+
+---
+
+## IMPLEMENTATION PROCESS
+
+### Step 1: Planning
+1. Read feature requirement
+2. Identify files to modify
+3. Plan implementation approach
+4. Estimate time required
+5. Identify dependencies
+6. Get approval for plan
+
+### Step 2: Implementation
+1. Create new files (if any)
+2. Modify existing files
+3. Add necessary imports
+4. Implement core logic
+5. Add error handling
+6. Add comments/documentation
+
+### Step 3: Testing
+1. Test new functionality
+2. Test existing functionality
+3. Test edge cases
+4. Test error scenarios
+5. Fix any bugs found
+6. Re-test after fixes
+
+### Step 4: Documentation
+1. Update code comments
+2. Update README (if needed)
+4. Document breaking changes
+5. Update API documentation (if needed)
+
+### Step 5: Commit
+1. Stage changes
+2. Write descriptive commit message
+3. List files modified
+4. Commit changes
+5. Push to repository (if applicable)
+
+### Step 6: Presentation
+1. Demonstrate feature
+2. Explain changes
+3. Address questions
+4. Get approval
+5. Document approval
+
+---
+
+## FEATURE IMPLEMENTATION TEMPLATE
+
+### Feature: [Feature Name]
+
+**Description**: [Brief description of feature]
+
+**Files to Modify**:
+1. [filename] - [reason for modification]
+2. [filename] - [reason for modification]
+
+**Files to Create**:
+1. [filename] - [purpose of file]
+
+**Dependencies**: [List of dependencies]
+
+**Estimated Time**: [Time estimate]
+
+**Implementation Plan**:
+1. [Step 1]
+2. [Step 2]
+3. [Step 3]
+
+**Testing Plan**:
+- [ ] Test case 1
+- [ ] Test case 2
+- [ ] Test case 3
+
+**Breaking Changes**: [List any breaking changes]
+
+**Approval**: [Stakeholder approval]
+
+---
+
+## EXAMPLE IMPLEMENTATION
+
+### Feature: Admin Authentication
+
+**Description**: Add password protection to /admin route
+
+**Files to Modify**:
+1. app.py - Add @login_required decorator to admin routes
+2. database.py - Add User model
+3. requirements.txt - Add Flask-Login
+
+**Files to Create**:
+1. templates/login.html - Login page
+2. templates/register.html - Registration page
+
+**Dependencies**: None
+
+**Estimated Time**: 2 hours
+
+**Implementation Plan**:
+1. Add User model to database.py
+2. Install Flask-Login
+3. Create login/register pages
+4. Add authentication routes to app.py
+5. Protect admin routes with @login_required
+6. Test authentication flow
+
+**Testing Plan**:
+- [ ] Test login with correct credentials
+- [ ] Test login with incorrect credentials
+- [ ] Test registration
+- [ ] Test admin route protection
+- [ ] Test logout
+
+**Breaking Changes**: None
+
+**Approval**: Pending
+
+---
+
+## ERROR HANDLING RULES
+
+### During Implementation
+1. **If Error Occurs**:
+   - Identify root cause
+   - Fix the error
+   - Test fix
+   - Document fix
+   - Continue implementation
+
+2. **If Stuck**:
+   - Stop implementation
+   - Document issue
+   - Ask for help
+   - Don't proceed with workaround
+
+3. **If Unexpected Issue**:
+   - Stop implementation
+   - Document issue
+   - Revert changes if necessary
+   - Get approval to continue
+
+### After Implementation
+1. **If Tests Fail**:
+   - Fix failing tests
+   - Re-test
+   - Don't commit failing tests
+
+2. **If Breaking Change Discovered**:
+   - Document breaking change
+   - Get approval for breaking change
+   - Update documentation
+
+3. **If Performance Issue**:
+   - Profile the code
+   - Optimize if necessary
+   - Document performance characteristics
+
+---
+
+## QUALITY CHECKLIST
+
+Before submitting feature for approval:
+
+### Code Quality
+- [ ] Code follows PEP 8 style guide
+- [ ] Functions have docstrings
+- [ ] Complex logic has comments
+- [ ] No hardcoded values (use constants)
+- [ ] No magic numbers
+
+### Functionality
+- [ ] Feature works as specified
+- [ ] Edge cases handled
+- [ ] Error handling implemented
+- [ ] User feedback provided
+- [ ] Loading states shown
+
+### Testing
+- [ ] New functionality tested
+- [ ] Existing functionality tested
+- [ ] No regressions found
+- [ ] Error scenarios tested
+
+### Documentation
+- [ ] Code comments added
+- [ ] Commit message descriptive
+- [ ] Files modified listed
+- [ ] Breaking changes documented
+
+### Security
+- [ ] Inputs validated
+- [ ] SQL injection prevented
+- [ ] XSS prevention in place
+- [ ] CSRF tokens added (if forms)
+- [ ] No secrets in code
+
+---
+
+## ROLLBACK PROCEDURE
+
+If implementation needs to be rolled back:
+
+1. **Identify Changes**:
+   - List files modified
+   - List files created
+   - Identify database changes
+
+2. **Rollback Steps**:
+   - Revert code changes
+   - Remove new files
+   - Revert database schema (if needed)
+   - Restore data (if needed)
+
+3. **Document Rollback**:
+   - Reason for rollback
+   - Changes reverted
+   - Lessons learned
+
+---
+
+## PROGRESS TRACKING
+
+### Feature Status
+- **Not Started**: Feature not yet begun
+- **In Progress**: Feature being implemented
+- **Testing**: Feature implemented, being tested
+- **Awaiting Approval**: Feature tested, awaiting stakeholder approval
+- **Completed**: Feature approved and merged
+
+### Progress Log
+```
+[Date] [Feature Name] - [Status]
+- Notes about progress
+- Issues encountered
+- Decisions made
+```
+
+---
+
+## COMMUNICATION RULES
+
+### During Implementation
+1. **Ask Questions**: If unclear, ask for clarification
+2. **Report Issues**: Report blockers immediately
+3. **Provide Updates**: Regular progress updates
+4. **Seek Feedback**: Get feedback on approach
+
+### After Implementation
+1. **Demonstrate**: Show working feature
+2. **Explain**: Explain changes made
+3. **Document**: Document decisions
+4. **Get Approval**: Explicit approval before proceeding
+
+---
+
+## VIOLATION CONSEQUENCES
+
+If these rules are violated:
+1. **Code Quality**: Decreases maintainability
+2. **Testing**: Incomplete testing leads to bugs
+3. **Documentation**: Poor documentation hinders future work
+4. **Approval**: Delays due to rework
+5. **Project**: Risk of project failure
+
+---
+
+## EXCEPTION HANDLING
+
+When exceptions are necessary:
+1. **Document Reason**: Explain why rule is being violated
+2. **Get Approval**: Get approval before violating rule
+3. **Minimize Impact**: Limit scope of violation
+4. **Plan Fix**: Plan to address violation later
+
+---
+
+## SUCCESS CRITERIA
+
+Implementation is successful when:
+- [ ] Feature works as specified
+- [ ] All tests pass
+- [ ] No regressions
+- [ ] Code is documented
+- [ ] Stakeholder approves
+- [ ] Changes are committed
+
+---
+
+## CONCLUSION
+
+These implementation rules ensure:
+- **Quality**: Each feature is thoroughly tested
+- **Transparency**: All changes are documented
+- **Control**: Stakeholder has control over progress
+- **Safety**: Ability to rollback if needed
+- **Efficiency**: Focused, single-feature approach
+
+**Follow these rules for successful, controlled implementation.**

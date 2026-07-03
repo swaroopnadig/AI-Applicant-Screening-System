@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Manage Jobs - AI Interview Platform</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 20px;
+        }
+        .jobs-container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .jobs-card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+        .jobs-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 25px 30px;
+            color: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .jobs-header h2 {
+            margin: 0;
+            font-weight: 700;
+        }
+        .jobs-body {
+            padding: 30px;
+        }
+        .table-container {
+            background: white;
+            border-radius: 15px;
+            overflow: hidden;
+        }
+        .table thead th {
+            background: #f8f9fa;
+            border: none;
+            font-weight: 600;
+            color: #333;
+            padding: 15px;
+        }
+        .table tbody td {
+            padding: 15px;
+            vertical-align: middle;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .btn-create {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            border-radius: 10px;
+            padding: 10px 20px;
+            color: white;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        .btn-create:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+        .btn-edit {
+            background: #17a2b8;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 15px;
+            color: white;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+        .btn-edit:hover {
+            background: #138496;
+        }
+        .btn-delete {
+            background: #dc3545;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 15px;
+            color: white;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+        .btn-delete:hover {
+            background: #c82333;
+        }
+        .btn-back {
+            background: #6c757d;
+            border: none;
+            border-radius: 10px;
+            padding: 10px 20px;
+            color: white;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        .btn-back:hover {
+            background: #5a6268;
+        }
+        .nav-link {
+            color: white !important;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <div class="jobs-container">
+        <div class="jobs-card">
+            <div class="jobs-header">
+                <h2><i class="fas fa-briefcase mr-3"></i>Manage Jobs</h2>
+                <div>
+                    <a href="/admin" class="nav-link mr-3"><i class="fas fa-tachometer-alt mr-2"></i>Dashboard</a>
+                    <a href="/logout" class="nav-link"><i class="fas fa-sign-out-alt mr-2"></i>Logout</a>
+                </div>
+            </div>
+            <div class="jobs-body">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h4 class="mb-0">Job Listings</h4>
+                    <div>
+                        <a href="/admin/jobs/create" class="btn btn-create"><i class="fas fa-plus mr-2"></i>Create Job</a>
+                    </div>
+                </div>
+                
+                {% if jobs %}
+                <div class="table-container">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Title</th>
+                                <th>Company</th>
+                                <th>Location</th>
+                                <th>Experience</th>
+                                <th>Weightage</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for job in jobs %}
+                            <tr>
+                                <td><strong>{{ job.title }}</strong></td>
+                                <td>{{ job.company }}</td>
+                                <td>{{ job.location or 'Remote' }}</td>
+                                <td>{{ job.minimum_experience }}+ years</td>
+                                <td>
+                                    <small>S: {{ job.weight_skills }}%</small><br>
+                                    <small>E: {{ job.weight_experience }}%</small><br>
+                                    <small>Ed: {{ job.weight_education }}%</small>
+                                </td>
+                                <td>{{ job.created_at.strftime('%Y-%m-%d') }}</td>
+                                <td>
+                                    <a href="/admin/jobs/{{ job.id }}/edit" class="btn btn-edit"><i class="fas fa-edit"></i></a>
+                                    <form method="POST" action="/admin/jobs/{{ job.id }}/delete" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this job?');">
+                                        <button type="submit" class="btn btn-delete"><i class="fas fa-trash"></i></button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-5">
+                    <i class="fas fa-folder-open" style="font-size: 60px; color: #ccc;"></i>
+                    <p class="mt-3 text-muted">No jobs created yet.</p>
+                    <a href="/admin/jobs/create" class="btn btn-create">Create First Job</a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</body>
+</html>

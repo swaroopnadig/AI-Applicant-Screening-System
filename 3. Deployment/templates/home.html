@@ -1,237 +1,511 @@
 <!DOCTYPE html>
 <html>
-	<head>
-		<title>InterviewIQ.ai</title>
-		<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.3/css/bootstrap.min.css" integrity="sha384-MCw98/SFnGE8fJT3GXwEOngsV7Zt27NXFoaoApmYm81iuXoPkFOJwJ8ERdknLPMO" crossorigin="anonymous">
-		<link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.5.0/css/all.css" integrity="sha384-B4dIYHKNBt8Bc12p+WXckhzcICo0wtJAoU8YZTY5qE0Id1GSseTk6S+L3BlXeVIU" crossorigin="anonymous">
-		<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
-		<link href="//maxcdn.bootstrapcdn.com/bootstrap/4.1.1/css/bootstrap.min.css" rel="stylesheet" id="bootstrap-css">
-		<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='style.css')}}"/>
-	</head>
-	
-	
-	<body>
-		<div class="container-fluid h-100">
-			<div class="row justify-content-center h-100">		
-				<div class="col-md-8 col-xl-6 chat">
-					<div class="card">
-						<div class="card-header msg_head">
-							<div class="d-flex bd-highlight">
-								<div class="img_cont">
-									<img src="../static/images/interviewer.png" class="rounded-circle user_img">
-									<span class="online_icon"></span>
-								</div>
-								<div class="user_info">
-									<span>Interviewer</span>
-								</div>
-							</div>
-						</div>
-						<div id="messageFormeight" class="card-body msg_card_body">
-							
-							
-						</div>
-						<div class="card-footer">
-							<form id="messageArea" class="input-group">
-								<div class="input-group-append">
-									<button type="button" id="microphone" class="input-group-text microphone_btn"><i class="fas fa-microphone"></i></button>
-								</div>
-                                <input type="text" id="text" name="msg" placeholder="Type your message..." autocomplete="off" class="form-control type_msg" required/>
-								<div class="input-group-append">
-									<button type="submit" id="send" class="input-group-text send_btn"><i class="fas fa-location-arrow"></i></button>
-								</div>
-							</form>
-						</div>
-					</div>
-				</div>
-			</div>
-		</div>
+<head>
+    <title>AI Interview Platform</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='style.css')}}">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 20px 0;
+        }
+        .chat-container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .chat-card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+        .chat-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            color: white;
+        }
+        .chat-header .interviewer-info {
+            display: flex;
+            align-items: center;
+        }
+        .chat-header .interviewer-avatar {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: white;
+            margin-right: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .chat-header .interviewer-avatar i {
+            font-size: 25px;
+            color: #667eea;
+        }
+        .chat-header .interviewer-name {
+            font-weight: 600;
+            font-size: 18px;
+        }
+        .chat-header .interviewer-status {
+            font-size: 12px;
+            opacity: 0.9;
+        }
+        .chat-body {
+            height: 500px;
+            overflow-y: auto;
+            padding: 20px;
+            background: #f8f9fa;
+        }
+        .message {
+            margin-bottom: 20px;
+            display: flex;
+            align-items: flex-end;
+        }
+        .message.bot {
+            justify-content: flex-start;
+        }
+        .message.user {
+            justify-content: flex-end;
+        }
+        .message-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 10px;
+        }
+        .message.bot .message-avatar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .message.user .message-avatar {
+            background: #58cc71;
+            color: white;
+        }
+        .message-content {
+            max-width: 70%;
+            padding: 12px 18px;
+            border-radius: 18px;
+            position: relative;
+        }
+        .message.bot .message-content {
+            background: white;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        .message.user .message-content {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .message-time {
+            font-size: 10px;
+            opacity: 0.7;
+            margin-top: 5px;
+        }
+        .chat-footer {
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+        }
+        .input-group {
+            border-radius: 25px;
+            overflow: hidden;
+        }
+        .message-input {
+            border: 2px solid #e0e0e0;
+            border-radius: 25px;
+            padding: 15px 20px;
+            font-size: 15px;
+        }
+        .message-input:focus {
+            border-color: #667eea;
+            box-shadow: none;
+        }
+        .btn-microphone {
+            background: #f8f9fa;
+            border: 2px solid #e0e0e0;
+            border-radius: 25px;
+            padding: 15px 20px;
+            color: #667eea;
+            transition: all 0.3s ease;
+        }
+        .btn-microphone:hover {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+        .btn-microphone.recording {
+            background: #e74c3c;
+            color: white;
+            border-color: #e74c3c;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        .btn-send {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            border-radius: 25px;
+            padding: 15px 25px;
+            color: white;
+            transition: all 0.3s ease;
+        }
+        .btn-send:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+        .stats-panel {
+            margin-top: 20px;
+            display: flex;
+            gap: 15px;
+        }
+        .stat-card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 15px 20px;
+            flex: 1;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+        .stat-card h6 {
+            color: #666;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 5px;
+        }
+        .stat-card .stat-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: #333;
+        }
+        .stat-card .stat-value.good {
+            color: #27ae60;
+        }
+        .stat-card .stat-value.warning {
+            color: #f39c12;
+        }
+        .stat-card .stat-value.danger {
+            color: #e74c3c;
+        }
+    </style>
+</head>
+<body>
+    <div class="container chat-container">
+        <div class="chat-card">
+            <div class="chat-header">
+                <div class="interviewer-info">
+                    <div class="interviewer-avatar">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <div>
+                        <div class="interviewer-name">AI Interviewer</div>
+                        <div class="interviewer-status"><i class="fas fa-circle" style="font-size: 8px; color: #2ecc71;"></i> Online</div>
+                    </div>
+                </div>
+            </div>
+            <div id="messageFormeight" class="chat-body">
+            </div>
+            <div class="chat-footer">
+                <form id="messageArea" class="input-group">
+                    <div class="input-group-prepend">
+                        <button type="button" id="microphone" class="btn-microphone">
+                            <i class="fas fa-microphone"></i>
+                        </button>
+                    </div>
+                    <input type="text" id="text" name="msg" placeholder="Type your answer or use voice..." autocomplete="off" class="form-control message-input" required/>
+                    <div class="input-group-append">
+                        <button type="submit" id="send" class="btn-send">
+                            <i class="fas fa-paper-plane"></i>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <div class="stats-panel">
+            <div class="stat-card">
+                <h6><i class="fas fa-tachometer-alt mr-2"></i>Speaking Pace</h6>
+                <div class="stat-value" id="res_1">--</div>
+            </div>
+            <div class="stat-card">
+                <h6><i class="fas fa-spell-check mr-2"></i>Grammar Check</h6>
+                <div class="stat-value" id="res">--</div>
+            </div>
+        </div>
+        {% if error %}
+        <div class="alert alert-danger mt-3" role="alert">
+            <i class="fas fa-exclamation-triangle mr-2"></i>{{ error }}
+        </div>
+        {% endif %}
+        {% if resume_data %}
+        <div class="card mt-3" style="border-radius: 15px; box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);">
+            <div class="card-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 15px 15px 0 0;">
+                <h6 class="mb-0"><i class="fas fa-file-alt mr-2"></i>Resume Parsed Successfully</h6>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    {% if resume_data.name %}
+                    <div class="col-md-6 mb-2">
+                        <small class="text-muted">Name:</small>
+                        <div><strong>{{ resume_data.name }}</strong></div>
+                    </div>
+                    {% endif %}
+                    {% if resume_data.email %}
+                    <div class="col-md-6 mb-2">
+                        <small class="text-muted">Email:</small>
+                        <div><strong>{{ resume_data.email }}</strong></div>
+                    </div>
+                    {% endif %}
+                    {% if resume_data.mobile_number %}
+                    <div class="col-md-6 mb-2">
+                        <small class="text-muted">Mobile:</small>
+                        <div><strong>{{ resume_data.mobile_number }}</strong></div>
+                    </div>
+                    {% endif %}
+                    {% if resume_data.college_name %}
+                    <div class="col-md-6 mb-2">
+                        <small class="text-muted">Education:</small>
+                        <div><strong>{{ resume_data.college_name[0] if resume_data.college_name else 'N/A' }}</strong></div>
+                    </div>
+                    {% endif %}
+                    {% if resume_data.skills %}
+                    <div class="col-12 mb-2">
+                        <small class="text-muted">Skills Detected:</small>
+                        <div>
+                            {% for skill in resume_data.skills[:10] %}
+                            <span class="badge badge-info mr-1">{{ skill }}</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if resume_data.total_experience %}
+                    <div class="col-md-6 mb-2">
+                        <small class="text-muted">Total Experience:</small>
+                        <div><strong>{{ resume_data.total_experience }} years</strong></div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
 
-
-
-		<div class="b3" id="b3">
-			<p>
-				Speaking Pace
-			</p>
-			<p id="res_1">
-			</p>
-		</div>
-
-		<div class="b2" id="b2">
-			<p id="res">
-			</p>
-		</div>
-
-		<script src="//maxcdn.bootstrapcdn.com/bootstrap/4.1.1/js/bootstrap.min.js"></script>
-		<script src="//cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
-		<script>
-
-			function update_pace() {
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function update_pace() {
             fetch('/get_pace')
                 .then(response => response.json())
                 .then(data => {
-                    document.getElementById('res_1').textContent = data.Pace_Checker;
+                    const paceEl = document.getElementById('res_1');
+                    paceEl.textContent = data.Pace_Checker;
+                    paceEl.className = 'stat-value';
+                    if (data.Pace_Checker === 'Good Pace') {
+                        paceEl.classList.add('good');
+                    } else {
+                        paceEl.classList.add('warning');
+                    }
                 })
-                .catch(error => console.error('Error updating flag:', error));
+                .catch(error => console.error('Error updating pace:', error));
         }
-			// Call the function initially
         update_pace();
+        setInterval(update_pace, 2000);
 
-		setInterval(update_pace, 2000);
-
-			function updateFlag() {
+        function updateFlag() {
             fetch('/get_flag')
                 .then(response => response.json())
                 .then(data => {
-                    document.getElementById('res').textContent = data.flag;
+                    const grammarEl = document.getElementById('res');
+                    grammarEl.textContent = data.flag;
                 })
-                .catch(error => console.error('Error updating flag:', error));
+                .catch(error => console.error('Error updating grammar:', error));
         }
-			// Call the function initially
         updateFlag();
-
-        // Polling to update flag every 5 seconds (adjust the interval as needed)
         setInterval(updateFlag, 2000);
 
+        $(document).ready(function() {
+            const recordButton = document.getElementById('microphone');
+            let isRecording = false;
+            let audioChunks = [];
 
-			 function resizeDiv() {
-            var b2 = document.getElementById('b2');
-            var res = document.getElementById('res');
-            var resWidth = res.offsetWidth;
-            var resHeight = res.offsetHeight;
-            b2.style.height = 20 + resHeight + 'px';
-        }
-		resizeDiv();
+            const startRecording = () => {
+                navigator.mediaDevices.getUserMedia({ audio: true })
+                    .then(stream => {
+                        const mediaRecorder = new MediaRecorder(stream);
 
-        // Listen for changes in text content
-        var observer = new MutationObserver(resizeDiv);
-        var targetNode = document.getElementById('res');
-        var config = { childList: true, subtree: true };
-        observer.observe(targetNode, config);
-
-
-			$(document).ready(function() {
-
-
-				const recordButton = document.getElementById('microphone');
-        let isRecording = false;
-        let audioChunks = [];
-
-        const startRecording = () => {
-            navigator.mediaDevices.getUserMedia({ audio: true })
-                .then(stream => {
-                    const mediaRecorder = new MediaRecorder(stream);
-
-                    mediaRecorder.addEventListener('dataavailable', event => {
-                        audioChunks.push(event.data);
-                    });
-
-                    mediaRecorder.addEventListener('stop', () => {
-                        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-                        const formData = new FormData();
-                        formData.append('audio', audioBlob);
-
-                        fetch('/upload', {
-                            method: 'POST',
-                            body: formData
-                        })
-                        .then(response => {
-                            console.log('Audio uploaded successfully');
-                        })
-                        .catch(error => {
-                            console.error('Error uploading audio:', error);
+                        mediaRecorder.addEventListener('dataavailable', event => {
+                            audioChunks.push(event.data);
                         });
 
-                        audioChunks = [];
-                    });
+                        mediaRecorder.addEventListener('stop', () => {
+                            const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                            const formData = new FormData();
+                            formData.append('audio', audioBlob);
 
-                    recordButton.addEventListener('click', () => {
-                        if (isRecording) {
-                            mediaRecorder.stop();
-                            isRecording = false;
-                        } else {
-                            mediaRecorder.start();
-                            isRecording = true;
-                        }
+                            fetch('/upload', {
+                                method: 'POST',
+                                body: formData
+                            })
+                            .then(response => {
+                                console.log('Audio uploaded successfully');
+                                sendAudio();
+                            })
+                            .catch(error => {
+                                console.error('Error uploading audio:', error);
+                            });
+
+                            audioChunks = [];
+                        });
+
+                        recordButton.addEventListener('click', () => {
+                            if (isRecording) {
+                                mediaRecorder.stop();
+                                isRecording = false;
+                                recordButton.classList.remove('recording');
+                            } else {
+                                mediaRecorder.start();
+                                isRecording = true;
+                                recordButton.classList.add('recording');
+                            }
+                        });
+                    })
+                    .catch(error => {
+                        console.error('Error accessing microphone:', error);
+                    });
+            };
+
+            startRecording();
+
+            function sendAudio() {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                const formData = new FormData();
+                formData.append('audio', audioBlob);
+
+                fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => {
+                    console.log('Audio uploaded successfully');
+                    fetch('/get_text')
+                    .then(response => response.text())
+                    .then(text => {
+                        $("#text").val(text);
+                    })
+                    .catch(error => {
+                        console.error('Error fetching text:', error);
                     });
                 })
                 .catch(error => {
-                    console.error('Error accessing microphone:', error);
+                    console.error('Error uploading audio:', error);
                 });
-        };
+            }
 
-        startRecording();
+            const date = new Date();
+            const hour = date.getHours();
+            const minute = date.getMinutes();
+            const str_time = hour + ":" + minute;
+            var initialMessage = "Hello {{name}}, tell me about yourself.";
+            var botHtml = '<div class="message bot"><div class="message-avatar"><i class="fas fa-robot"></i></div><div class="message-content">' + initialMessage + '<div class="message-time">' + str_time + '</div></div></div>';
+            $("#messageFormeight").append(botHtml);
 
-		recordButton.addEventListener('click', () => {
-            if (isRecording) {
-                // If recording is stopped, send the audio to the server
-                sendAudio();
+            $("#messageArea").on("submit", function(event) {
+                const date = new Date();
+                const hour = date.getHours();
+                const minute = date.getMinutes();
+                const str_time = hour + ":" + minute;
+                var rawText = $("#text").val();
+
+                var userHtml = '<div class="message user"><div class="message-content">' + rawText + '<div class="message-time">' + str_time + '</div></div><div class="message-avatar"><i class="fas fa-user"></i></div></div>';
+
+                $("#text").val("");
+                $("#messageFormeight").append(userHtml);
+                $("#messageFormeight").scrollTop($("#messageFormeight")[0].scrollHeight);
+
+                // Create bot message placeholder for streaming
+                var botHtml = '<div class="message bot"><div class="message-avatar"><i class="fas fa-robot"></i></div><div class="message-content" id="streaming-message"><div class="message-time">' + str_time + '</div></div></div>';
+                $("#messageFormeight").append(botHtml);
+                
+                // Stream the response
+                const formData = new FormData();
+                formData.append('msg', rawText);
+                
+                fetch('/get_stream', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => {
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    const messageContent = document.getElementById('streaming-message');
+                    let fullText = '';
+                    
+                    function readStream() {
+                        reader.read().then(({ done, value }) => {
+                            if (done) {
+                                // Remove the placeholder time and add it at the end
+                                const timeElement = messageContent.querySelector('.message-time');
+                                messageContent.innerHTML = fullText;
+                                messageContent.appendChild(timeElement);
+                                return;
+                            }
+                            
+                            const chunk = decoder.decode(value);
+                            
+                            // Check for interview end signal
+                            if (chunk.includes('INTERVIEW_END')) {
+                                showInterviewConclusion();
+                                return;
+                            }
+                            
+                            fullText += chunk;
+                            messageContent.innerHTML = fullText + '<div class="message-time">' + str_time + '</div>';
+                            $("#messageFormeight").scrollTop($("#messageFormeight")[0].scrollHeight);
+                            
+                            readStream();
+                        });
+                    }
+                    
+                    readStream();
+                })
+                .catch(error => {
+                    console.error('Error streaming response:', error);
+                    const messageContent = document.getElementById('streaming-message');
+                    messageContent.innerHTML = 'Error: Could not get response. Please try again.<div class="message-time">' + str_time + '</div>';
+                });
+                
+                event.preventDefault();
+            });
+            
+            function showInterviewConclusion() {
+                // Show interview conclusion modal
+                const conclusionHtml = `
+                    <div class="modal fade" id="interviewConclusionModal" tabindex="-1" role="dialog">
+                        <div class="modal-dialog" role="document">
+                            <div class="modal-content">
+                                <div class="modal-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                                    <h5 class="modal-title"><i class="fas fa-check-circle mr-2"></i>Interview Concluded</h5>
+                                </div>
+                                <div class="modal-body text-center">
+                                    <i class="fas fa-trophy" style="font-size: 60px; color: #667eea; margin-bottom: 20px;"></i>
+                                    <h4>Thank you for completing the interview!</h4>
+                                    <p class="text-muted">Your responses have been recorded and evaluated by our AI system.</p>
+                                    <p>A recruiter will review your assessment and get back to you soon.</p>
+                                    <a href="/" class="btn btn-primary mt-3">Return to Home</a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                $("body").append(conclusionHtml);
+                $("#interviewConclusionModal").modal('show');
             }
         });
-
-		function sendAudio() {
-            const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-            const formData = new FormData();
-            formData.append('audio', audioBlob);
-
-            fetch('/upload', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => {
-                console.log('Audio uploaded successfully');
-                // Once audio is uploaded, fetch the text from the server and set it to the input field
-                fetch('/get_text')
-                .then(response => response.text())
-                .then(text => {
-                    $("#text").val(text);
-                })
-                .catch(error => {
-                    console.error('Error fetching text:', error);
-                });
-            })
-            .catch(error => {
-                console.error('Error uploading audio:', error);
-            });
-
-            audioChunks = [];
-        }
-
-
-				const date = new Date();
-				const hour = date.getHours();
-				const minute = date.getMinutes();
-				const str_time = hour + ":" + minute;
-				var initialMessage = "Hello {{name}}, tell me about yourself.";
-				var botHtml = '<div class="d-flex justify-content-start mb-4"><div class="img_cont_msg"><img src="../static/images/interviewer.png" class="rounded-circle user_img_msg"></div><div class="msg_cotainer">' + initialMessage + '<span class="msg_time">' + str_time + '</span></div></div>';
-				$("#messageFormeight").append($.parseHTML(botHtml));
-
-
-				$("#messageArea").on("submit", function(event) {
-					const date = new Date();
-					const hour = date.getHours();
-					const minute = date.getMinutes();
-					const str_time = hour+":"+minute;
-					var rawText = $("#text").val();
-
-					var userHtml = '<div class="d-flex justify-content-end mb-4"><div class="msg_cotainer_send">' + rawText + '<span class="msg_time_send">'+ str_time + '</span></div><div class="img_cont_msg"><img src="https://i.ibb.co/d5b84Xw/Untitled-design.png" class="rounded-circle user_img_msg"></div></div>';
-
-					$("#text").val("");
-					$("#messageFormeight").append(userHtml);
-
-					$.ajax({
-						data: {
-							msg: rawText,
-						},
-						type: "POST",
-						url: "/get",
-					}).done(function(data) {
-						var botHtml = '<div class="d-flex justify-content-start mb-4"><div class="img_cont_msg"><img src="../static/images/interviewer.png" class="rounded-circle user_img_msg"></div><div class="msg_cotainer">' + data + '<span class="msg_time">' + str_time + '</span></div></div>';
-						$("#messageFormeight").append($.parseHTML(botHtml));
-					});
-					event.preventDefault();
-				});
-			});
-		</script>
-        
-    </body>
+    </script>
+</body>
 </html>

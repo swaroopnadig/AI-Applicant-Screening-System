@@ -1,0 +1,384 @@
+# ARCHITECTURE RULES - AI Interview Platform
+
+## CORE PRINCIPLES
+
+### 1. Never Rewrite Working Modules
+- **Rule**: If a module is functioning correctly, do not rewrite it from scratch
+- **Reason**: Rewriting introduces bugs, wastes time, and loses existing functionality
+- **Exception**: Only rewrite if the module is fundamentally broken or cannot be extended
+- **Example**: The resume parser works well - extend it for new file types, don't rewrite
+
+### 2. Extend Existing Code Whenever Possible
+- **Rule**: Always prefer extending existing code over creating new code
+- **Reason**: Maintains consistency, reduces code duplication, leverages tested code
+- **Implementation**: Add new methods to existing classes, extend existing functions
+- **Example**: Add new scoring metrics to AIScore model instead of creating new table
+
+### 3. Keep Flask Architecture Clean
+- **Rule**: Maintain clear separation of concerns in Flask application
+- **Reason**: Improves maintainability, testing, and debugging
+- **Implementation**:
+  - Routes in app.py should be thin (logic in services)
+  - Business logic in separate modules
+  - Database operations in database.py
+  - AI operations in model.py
+- **Example**: Move scoring logic from app.py to a separate scoring service
+
+### 4. Keep Database Normalized
+- **Rule**: Follow database normalization principles (3NF)
+- **Reason**: Prevents data redundancy, ensures data integrity
+- **Implementation**:
+  - Use foreign keys for relationships
+  - Avoid duplicate data across tables
+  - Use junction tables for many-to-many relationships
+- **Example**: Skills should be in separate table with junction table to candidates
+
+### 5. Prefer SQLAlchemy
+- **Rule**: Always use SQLAlchemy ORM for database operations
+- **Reason**: Type safety, SQL injection protection, database agnostic
+- **Implementation**:
+  - Never write raw SQL queries
+  - Use SQLAlchemy models for all database operations
+  - Use relationships for joins
+- **Example**: Use `db.query(Candidate).filter_by(name="John")` instead of raw SQL
+
+### 6. Keep Frontend Responsive
+- **Rule**: All UI components must be mobile-responsive
+- **Reason**: Users access from various devices
+- **Implementation**:
+  - Use Bootstrap grid system
+  - Test on mobile viewport
+  - Use relative units (%, rem) instead of fixed pixels
+- **Example**: Use `col-md-6 col-sm-12` instead of fixed width
+
+### 7. Keep UI Consistent
+- **Rule**: Maintain consistent design language across all pages
+- **Reason**: Professional appearance, better user experience
+- **Implementation**:
+  - Use same color scheme (gradient: #667eea to #764ba2)
+  - Use same card styles and shadows
+  - Use same button styles
+  - Use same font family
+- **Example**: Admin dashboard should match interview page design
+
+### 8. Use Only Free/Open-Source Libraries
+- **Rule**: All dependencies must be free and open-source
+- **Reason**: No licensing costs, community support, transparency
+- **Implementation**:
+  - Check license before adding new dependency
+  - Prefer MIT, Apache 2.0, BSD licenses
+  - Avoid proprietary libraries
+- **Example**: Use Flask (BSD) instead of proprietary frameworks
+
+### 9. Preserve Backwards Compatibility
+- **Rule**: New features should not break existing functionality
+- **Reason**: Prevents regression, maintains user trust
+- **Implementation**:
+  - Add new features as additions, not replacements
+  - Keep old routes working while adding new ones
+  - Use feature flags for major changes
+- **Example**: Keep `/get` route working when adding `/get_stream`
+
+### 10. Maintain Modular Code
+- **Rule**: Keep code modules small and focused
+- **Reason**: Easier to test, debug, and maintain
+- **Implementation**:
+  - Each file should have single responsibility
+  - Functions should be < 50 lines
+  - Classes should have single purpose
+- **Example**: Separate resume parsing into its own module
+
+### 11. Follow Good Software Engineering Practices
+- **Rule**: Apply industry-standard best practices
+- **Reason**: Professional code quality, maintainability
+- **Implementation**:
+  - Use meaningful variable names
+  - Add docstrings to functions
+  - Write comments for complex logic
+  - Follow PEP 8 style guide
+  - Use version control (Git)
+- **Example**: Add docstring to `get_Chat_response_stream` function
+
+---
+
+## DATABASE ARCHITECTURE RULES
+
+### Model Design
+1. **Use Descriptive Table Names**: Plural nouns (candidates, not candidate)
+2. **Primary Keys**: Always use `id` as primary key
+3. **Foreign Keys**: Name as `table_id` (candidate_id, session_id)
+4. **Timestamps**: Add `created_at` to all tables
+5. **Indexes**: Add indexes on frequently queried columns
+6. **Relationships**: Use SQLAlchemy relationships for joins
+
+### Example Model Structure
+```python
+class Candidate(Base):
+    __tablename__ = "candidates"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100))
+    email = Column(String(255))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    interview_sessions = relationship("InterviewSession", back_populates="candidate")
+```
+
+### Database Operations
+1. **Always Use Context Managers**: Ensure database sessions are closed
+2. **Handle Exceptions**: Wrap database operations in try-except
+3. **Use Transactions**: Commit only after all operations succeed
+4. **Avoid N+1 Queries**: Use eager loading with `joinedload()`
+
+---
+
+## FLASK ARCHITECTURE RULES
+
+### Route Organization
+1. **Group Related Routes**: Keep admin routes together, user routes together
+2. **Use Descriptive Route Names**: `/admin/candidate/<id>` not `/a/<id>`
+3. **HTTP Methods**: Use correct methods (GET for read, POST for write)
+4. **RESTful Patterns**: Follow REST conventions where applicable
+
+### Route Implementation
+```python
+@app.route("/admin/candidate/<int:session_id>")
+def candidate_details(session_id):
+    """Get detailed candidate information"""
+    db = get_db()
+    try:
+        # Database operations
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        db.close()
+```
+
+### Session Management
+1. **Use Flask Sessions**: For temporary user state
+2. **Database for Persistent State**: For long-term data storage
+3. **Avoid Global Variables**: Never use globals for user-specific data
+4. **Session Security**: Use secure cookies in production
+
+---
+
+## FRONTEND ARCHITECTURE RULES
+
+### HTML Structure
+1. **Semantic HTML**: Use proper HTML5 tags (<header>, <main>, <footer>)
+2. **Bootstrap Classes**: Use Bootstrap for styling consistency
+3. **Responsive Design**: Mobile-first approach
+4. **Accessibility**: Add ARIA labels, alt text
+
+### JavaScript Organization
+1. **Separate Concerns**: Keep UI logic separate from business logic
+2. **Error Handling**: Always handle fetch errors
+3. **User Feedback**: Show loading states, error messages
+4. **No Inline Scripts**: Keep JavaScript in separate files or script blocks
+
+### Example JavaScript Pattern
+```javascript
+fetch('/api/endpoint')
+    .then(response => response.json())
+    .then(data => {
+        // Update UI
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        // Show error to user
+    });
+```
+
+---
+
+## AI/ML ARCHITECTURE RULES
+
+### Model Integration
+1. **Separate AI Logic**: Keep AI operations in model.py
+2. **Error Handling**: Handle AI API failures gracefully
+3. **Rate Limiting**: Respect API rate limits
+4. **Caching**: Cache AI responses when appropriate
+
+### Prompt Engineering
+1. **Structured Prompts**: Use consistent prompt templates
+2. **Clear Instructions**: Be specific about expected output format
+3. **Output Validation**: Validate AI responses before using
+4. **Fallback Logic**: Have fallback when AI fails
+
+---
+
+## SECURITY ARCHITECTURE RULES
+
+### Authentication
+1. **Password Hashing**: Always hash passwords (werkzeug.security)
+2. **Session Management**: Use secure cookies in production
+3. **Role-Based Access**: Implement role-based access control
+4. **Login Required**: Protect sensitive routes with @login_required
+
+### Data Protection
+1. **Input Validation**: Validate all user inputs
+2. **SQL Injection**: Use parameterized queries (SQLAlchemy handles this)
+3. **XSS Protection**: Flask auto-escapes, validate user content
+4. **CSRF Protection**: Use Flask-WTF for CSRF tokens
+
+### File Uploads
+1. **Validate File Types**: Check MIME types, not just extensions
+2. **File Size Limits**: Restrict upload sizes (5MB max)
+3. **Secure Filenames**: Use werkzeug.utils.secure_filename
+4. **Virus Scanning**: Optional but recommended for production
+
+---
+
+## DEPLOYMENT ARCHITECTURE RULES
+
+### Environment Configuration
+1. **Environment Variables**: Use .env for sensitive data
+2. **Configuration Files**: Separate config for dev/prod
+3. **Secret Management**: Never commit secrets to Git
+4. **Database URLs**: Use environment variables for database URLs
+
+### Production Considerations
+1. **Use PostgreSQL**: Not SQLite for production
+2. **HTTPS Required**: Enforce SSL in production
+3. **Logging**: Use proper logging, not print statements
+4. **Monitoring**: Add health check endpoints
+5. **Backups**: Implement database backup strategy
+
+---
+
+## CODE QUALITY RULES
+
+### Naming Conventions
+1. **Variables**: snake_case (user_name, not userName)
+2. **Functions**: snake_case (get_user_data, not getUserData)
+3. **Classes**: PascalCase (Candidate, not candidate)
+4. **Constants**: UPPER_CASE (MAX_FILE_SIZE, not maxFileSize)
+
+### Code Organization
+1. **File Length**: Keep files under 500 lines
+2. **Function Length**: Keep functions under 50 lines
+3. **Function Parameters**: Max 5 parameters
+4. **Indentation**: 4 spaces (not tabs)
+
+### Documentation
+1. **Docstrings**: Add docstrings to all functions
+2. **Comments**: Explain complex logic, not obvious code
+3. **README**: Keep README updated with setup instructions
+4. **API Docs**: Document API endpoints
+
+---
+
+## TESTING RULES
+
+### Test Coverage
+1. **Unit Tests**: Test individual functions
+2. **Integration Tests**: Test database operations
+3. **Route Tests**: Test Flask routes
+4. **Frontend Tests**: Test JavaScript functions
+
+### Test Organization
+1. **Test Directory**: Keep tests in /tests directory
+2. **Test Naming**: Use descriptive test names
+3. **Test Data**: Use fixtures for test data
+4. **Test Isolation**: Tests should not depend on each other
+
+---
+
+## VERSION CONTROL RULES
+
+### Git Workflow
+1. **Meaningful Commits**: Write descriptive commit messages
+2. **Branch Strategy**: Use feature branches for new features
+3. **Code Review**: Review code before merging
+4. **Merge Strategy**: Use merge commits, not rebase
+
+### Commit Message Format
+```
+feat: add user authentication
+fix: resolve database connection issue
+docs: update README with deployment instructions
+refactor: extract scoring logic to separate module
+```
+
+---
+
+## PERFORMANCE RULES
+
+### Database Performance
+1. **Indexing**: Add indexes on frequently queried columns
+2. **Query Optimization**: Use eager loading to avoid N+1 queries
+3. **Connection Pooling**: Use connection pooling (SQLAlchemy supports this)
+4. **Caching**: Cache frequently accessed data
+
+### Frontend Performance
+1. **Minimize HTTP Requests**: Combine CSS/JS files
+2. **Lazy Loading**: Load images on demand
+3. **Compression**: Enable gzip compression
+4. **CDN**: Use CDN for static assets
+
+---
+
+## MAINTENANCE RULES
+
+### Dependencies
+1. **Requirements.txt**: Keep requirements.txt updated
+2. **Version Pinning**: Pin specific versions for production
+3. **Security Updates**: Regularly update dependencies
+4. **Unused Dependencies**: Remove unused dependencies
+
+### Code Maintenance
+1. **Refactoring**: Regular refactoring to prevent technical debt
+2. **Code Reviews**: Review code for quality
+3. **Documentation**: Keep documentation updated
+4. **Deprecated Code**: Remove deprecated code
+
+---
+
+## VIOLATION CONSEQUENCES
+
+If these rules are violated:
+1. **Code Quality**: Decreases maintainability
+2. **Security**: Introduces vulnerabilities
+3. **Performance**: Causes performance issues
+4. **Scalability**: Prevents horizontal scaling
+5. **User Experience**: Degrades user experience
+
+---
+
+## EXCEPTION HANDLING
+
+When exceptions are necessary:
+1. **Document Reason**: Explain why rule is being violated
+2. **Get Approval**: Get approval before violating rule
+3. **Plan Fix**: Plan to fix the violation later
+4. **Track Violations**: Track rule violations for future reference
+
+---
+
+## COMPLIANCE CHECKLIST
+
+Before committing code:
+- [ ] No global variables for user-specific data
+- [ ] Database operations use SQLAlchemy
+- [ ] All inputs are validated
+- [ ] Error handling is implemented
+- [ ] Code follows PEP 8 style guide
+- [ ] Functions have docstrings
+- [ ] UI is responsive
+- [ ] No hardcoded secrets
+- [ ] Backwards compatible
+- [ ] Tests pass
+
+---
+
+## CONCLUSION
+
+These architecture rules ensure:
+- **Maintainable Code**: Easy to understand and modify
+- **Secure Application**: Protected against common vulnerabilities
+- **Scalable System**: Can handle growth
+- **Professional Quality**: Industry-standard practices
+- **Team Collaboration**: Consistent code style across team
+
+**Follow these rules to maintain code quality and project success.**

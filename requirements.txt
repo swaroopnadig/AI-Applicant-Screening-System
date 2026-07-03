@@ -1,4 +1,5 @@
 flask
+flask-login
 torch
 faster_whisper
 pyaudio
@@ -8,4 +9,10 @@ peft
 accelerate
 bitsandbytes
 datasets
+pandas
+pdfminer.six
+docx2txt
+nltk
+python-dotenv
+sqlalchemy
 
