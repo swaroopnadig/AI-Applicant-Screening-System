@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{% if weightage %}Edit Weightage{% else %}Create Weightage{% endif %} - AI Interview Platform</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 20px;
+        }
+        .form-container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .form-card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+        .form-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 25px 30px;
+            color: white;
+        }
+        .form-header h2 {
+            margin: 0;
+            font-weight: 700;
+        }
+        .form-body {
+            padding: 30px;
+        }
+        .form-group label {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+        }
+        .form-control {
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 12px 15px;
+            font-size: 14px;
+        }
+        .form-control:focus {
+            border-color: #667eea;
+            box-shadow: none;
+        }
+        .btn-submit {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            border-radius: 10px;
+            padding: 12px 30px;
+            color: white;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        .btn-submit:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+        .btn-cancel {
+            background: #6c757d;
+            border: none;
+            border-radius: 10px;
+            padding: 12px 25px;
+            color: white;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        .btn-cancel:hover {
+            background: #5a6268;
+        }
+        .alert {
+            border-radius: 10px;
+            border: none;
+        }
+        .weightage-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 15px;
+            margin-top: 20px;
+        }
+        .weightage-section h5 {
+            color: #333;
+            margin-bottom: 15px;
+        }
+        .weightage-inputs {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        .weightage-input {
+            flex: 1;
+            min-width: 150px;
+        }
+        .weightage-input label {
+            font-size: 13px;
+            color: #666;
+        }
+        .help-text {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+        .checkbox-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .checkbox-wrapper input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+        }
+        .checkbox-wrapper label {
+            margin: 0;
+            font-weight: 500;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="form-container">
+        <div class="form-card">
+            <div class="form-header">
+                <h2><i class="fas fa-balance-scale mr-3"></i>{% if weightage %}Edit Weightage Preset{% else %}Create Weightage Preset{% endif %}</h2>
+            </div>
+            <div class="form-body">
+                {% if error %}
+                <div class="alert alert-danger" role="alert">
+                    <i class="fas fa-exclamation-triangle mr-2"></i>{{ error }}
+                </div>
+                {% endif %}
+                
+                <form method="POST">
+                    <div class="form-group">
+                        <label for="name">Preset Name *</label>
+                        <input type="text" class="form-control" id="name" name="name" required placeholder="e.g., Software Engineer, Data Scientist" value="{% if weightage %}{{ weightage.name }}{% endif %}">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="description">Description</label>
+                        <textarea class="form-control" id="description" name="description" rows="3" placeholder="Describe when to use this preset...">{% if weightage %}{{ weightage.description }}{% endif %}</textarea>
+                    </div>
+                    
+                    <div class="weightage-section">
+                        <h5><i class="fas fa-sliders-h mr-2"></i>Weightage Configuration</h5>
+                        <p class="help-text mb-3">Total must equal 100%</p>
+                        <div class="weightage-inputs">
+                            <div class="weightage-input">
+                                <label for="weight_skills">Skills (%)</label>
+                                <input type="number" class="form-control" id="weight_skills" name="weight_skills" min="0" max="100" value="{% if weightage %}{{ weightage.weight_skills }}{% else %}40{% endif %}">
+                            </div>
+                            <div class="weightage-input">
+                                <label for="weight_experience">Experience (%)</label>
+                                <input type="number" class="form-control" id="weight_experience" name="weight_experience" min="0" max="100" value="{% if weightage %}{{ weightage.weight_experience }}{% else %}30{% endif %}">
+                            </div>
+                            <div class="weightage-input">
+                                <label for="weight_education">Education (%)</label>
+                                <input type="number" class="form-control" id="weight_education" name="weight_education" min="0" max="100" value="{% if weightage %}{{ weightage.weight_education }}{% else %}30{% endif %}">
+                            </div>
+                        </div>
+                        
+                        <div class="checkbox-wrapper">
+                            <input type="checkbox" id="is_default" name="is_default" value="1" {% if weightage and weightage.is_default == 1 %}checked{% endif %}>
+                            <label for="is_default">Set as global default preset</label>
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between mt-4">
+                        <a href="/admin/weightage" class="btn btn-cancel"><i class="fas fa-times mr-2"></i>Cancel</a>
+                        <button type="submit" class="btn btn-submit"><i class="fas fa-save mr-2"></i>{% if weightage %}Update Preset{% else %}Create Preset{% endif %}</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
