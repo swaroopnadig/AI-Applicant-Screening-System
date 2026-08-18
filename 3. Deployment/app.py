@@ -1,11 +1,12 @@
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session, Response, stream_with_context
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 from model import generate_output, generate_output_stream, generate_score
 from faster_whisper import WhisperModel
 import os
-import werkzeug.utils
 import json
+import uuid
 from resume_parser import parse_resume, FileValidationError, ResumeParsingError
 from database import init_db, get_db, Resume, Candidate, InterviewSession, AIScore, User, Job, JobApplication
 
@@ -14,6 +15,7 @@ model_audio = WhisperModel(model_size_or_path="small")
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
+app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB max file size
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # Initialize database
@@ -32,6 +34,45 @@ def load_user(user_id):
         return db.query(User).get(int(user_id))
     finally:
         db.close()
+
+
+# File upload validation
+ALLOWED_EXTENSIONS = {'pdf', 'docx', 'txt'}
+ALLOWED_MIME_TYPES = {
+    'pdf': ['application/pdf'],
+    'docx': ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+    'txt': ['text/plain']
+}
+
+def allowed_file(filename):
+    """Check if file extension is allowed"""
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def validate_mime_type(file, filename):
+    """Validate file MIME type"""
+    ext = filename.rsplit('.', 1)[1].lower()
+    file.seek(0)
+    header = file.read(2048)
+    file.seek(0)
+    
+    # For PDF files, check magic bytes
+    if ext == 'pdf':
+        return header.startswith(b'%PDF')
+    
+    # For text files, check if it's readable text
+    if ext == 'txt':
+        try:
+            header.decode('utf-8')
+            return True
+        except UnicodeDecodeError:
+            return False
+    
+    # For DOCX, it's harder to validate without parsing, so we'll rely on extension
+    # but could add zip header check if needed
+    if ext == 'docx':
+        return True
+    
+    return False
 
 name = []
 position = []
@@ -451,31 +492,55 @@ def home():
         finally:
             db.close()
         
-        # Handle resume upload
+        # Handle resume upload with security validation
         parsed_data = None
         if 'resume' in request.files and request.files['resume'].filename:
             resume_file = request.files['resume']
             if resume_file.filename:
-                filename = werkzeug.utils.secure_filename(resume_file.filename)
-                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                # Validate file extension
+                if not allowed_file(resume_file.filename):
+                    return render_template('home.html', name=name[0], error="Invalid file type. Only PDF, DOCX, and TXT files are allowed.")
+                
+                # Validate MIME type (magic bytes check)
+                if not validate_mime_type(resume_file, resume_file.filename):
+                    return render_template('home.html', name=name[0], error="File content does not match the file extension. Please upload a valid file.")
+                
+                # Generate secure filename with UUID to prevent collisions
+                original_filename = secure_filename(resume_file.filename)
+                file_ext = original_filename.rsplit('.', 1)[1].lower()
+                unique_filename = f"{uuid.uuid4().hex}_{original_filename}"
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+                
+                # Save file
                 resume_file.save(filepath)
                 
                 try:
+                    # Parse resume using existing parser
                     parsed_data = parse_resume(filepath)
-                    print(f"Resume parsed: {parsed_data.get('email')}, {len(parsed_data.get('skills', []))} skills")
+                    
+                    # Check if parsing returned valid data
+                    if not parsed_data or not isinstance(parsed_data, dict):
+                        raise ResumeParsingError("Parser returned invalid data")
+                    
+                    # Validate parsed data has minimum required fields
+                    if not parsed_data.get('email') and not parsed_data.get('mobile_number'):
+                        return render_template('home.html', name=name[0], error="Resume must contain at least an email or phone number.")
+                    
+                    print(f"Resume parsed successfully: {parsed_data.get('email')}, {len(parsed_data.get('skills', []))} skills")
                     
                     # Update candidate with resume data
                     db = get_db()
                     try:
                         candidate = db.query(Candidate).filter_by(name=username).first()
                         if candidate:
-                            candidate.resume_filename = filename
-                            candidate.email = parsed_data.get('email', '')
+                            candidate.resume_filename = unique_filename  # Use secure filename
+                            candidate.email = parsed_data.get('email', candidate.email or '')
                             candidate.parsed_text = json.dumps(parsed_data)
                             db.commit()
                     except Exception as db_error:
                         db.rollback()
-                        print(f"Database error: {db_error}")
+                        print(f"Database error updating candidate: {db_error}")
+                        return render_template('home.html', name=name[0], error="Failed to save resume data to database.")
                     finally:
                         db.close()
                         
@@ -486,30 +551,43 @@ def home():
                         if existing_resume:
                             existing_resume.username = username
                             existing_resume.position = pos
-                            existing_resume.filename = filename
+                            existing_resume.filename = unique_filename  # Use secure filename
                             existing_resume.extracted_json = json.dumps(parsed_data)
                         else:
                             new_resume = Resume(
                                 session_id=session_id,
                                 username=username,
                                 position=pos,
-                                filename=filename,
+                                filename=unique_filename,  # Use secure filename
                                 extracted_json=json.dumps(parsed_data)
                             )
                             db.add(new_resume)
                         db.commit()
                     except Exception as db_error:
                         db.rollback()
-                        print(f"Database error: {db_error}")
+                        print(f"Database error updating resume table: {db_error}")
+                        # Non-critical error, continue
                     finally:
                         db.close()
                         
                 except FileValidationError as e:
                     print(f"Resume validation error: {e}")
+                    # Clean up uploaded file
+                    if os.path.exists(filepath):
+                        os.remove(filepath)
                     return render_template('home.html', name=name[0], error=f"Resume validation failed: {str(e)}")
                 except ResumeParsingError as e:
                     print(f"Resume parsing error: {e}")
-                    return render_template('home.html', name=name[0], error=f"Resume parsing failed: {str(e)}")
+                    # Clean up uploaded file
+                    if os.path.exists(filepath):
+                        os.remove(filepath)
+                    return render_template('home.html', name=name[0], error=f"Resume parsing failed: {str(e)}. Please ensure the file is not corrupted.")
+                except Exception as e:
+                    print(f"Unexpected error during resume processing: {e}")
+                    # Clean up uploaded file
+                    if os.path.exists(filepath):
+                        os.remove(filepath)
+                    return render_template('home.html', name=name[0], error=f"An error occurred while processing your resume. Please try again.")
         
         return render_template('home.html', name=name[0], resume_data=parsed_data)
     return render_template('home.html')
