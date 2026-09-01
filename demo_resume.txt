@@ -1,0 +1,5 @@
+John Doe
+Email: john.doe@email.com
+Skills: Python, Java, SQL, Flask, Data Structures, Git
+Experience: 2 years as software engineer intern and developer
+Education: B.Tech in Computer Science

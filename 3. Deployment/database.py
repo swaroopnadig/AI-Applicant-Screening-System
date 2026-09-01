@@ -7,6 +7,7 @@ Can be easily swapped to MySQL/PostgreSQL by changing DATABASE_URL.
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Float, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
+from flask_login import UserMixin
 from datetime import datetime
 import os
 
@@ -85,7 +86,7 @@ class AIScore(Base):
     session = relationship("InterviewSession", back_populates="ai_scores")
 
 
-class User(Base):
+class User(Base, UserMixin):
     """User model for authentication"""
     __tablename__ = "users"
     
@@ -95,6 +96,14 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     role = Column(String(20), default="candidate")  # candidate, recruiter, admin
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    @property
+    def is_active(self):
+        return True
+
+    @property
+    def is_anonymous(self):
+        return False
 
 
 class Job(Base):

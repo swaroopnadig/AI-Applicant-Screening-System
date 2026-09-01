@@ -314,7 +314,7 @@
                 .catch(error => console.error('Error updating pace:', error));
         }
         update_pace();
-        setInterval(update_pace, 2000);
+        setInterval(update_pace, 5000);
 
         function updateFlag() {
             fetch('/get_flag')
@@ -326,7 +326,7 @@
                 .catch(error => console.error('Error updating grammar:', error));
         }
         updateFlag();
-        setInterval(updateFlag, 2000);
+        setInterval(updateFlag, 5000);
 
         $(document).ready(function() {
             const recordButton = document.getElementById('microphone');

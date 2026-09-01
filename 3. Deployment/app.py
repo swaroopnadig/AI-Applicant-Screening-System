@@ -31,7 +31,8 @@ login_manager.login_message = 'Please log in to access this page.'
 def load_user(user_id):
     db = get_db()
     try:
-        return db.query(User).get(int(user_id))
+        # Use Session.get() (SQLAlchemy 2.0 compatible) instead of legacy Query.get()
+        return db.get(User, int(user_id))
     finally:
         db.close()
 
@@ -729,12 +730,15 @@ Rules:
 
     flag += 1
 
-    output = generate_output(prompt)
+    try:
+        output = generate_output(prompt)
+    except Exception:
+        output = "AI service unavailable. Please verify the Gemini API key in the project .env file."
 
     feed = grammar_checker(text)
     feedback.append(feed)
 
-    output = output.strip()
+    output = str(output).strip()
 
     if len(output) > 200:
         output = output[:200]
@@ -835,11 +839,16 @@ Rules:
 
     # Stream the response
     full_response = ""
-    for chunk in generate_output_stream(prompt):
-        full_response += chunk
-        yield chunk
+    try:
+        for chunk in generate_output_stream(prompt):
+            full_response += str(chunk)
+            yield chunk
+    except Exception:
+        fallback = "AI service unavailable. Please verify the Gemini API key in the project .env file."
+        yield fallback
+        full_response = fallback
     
-    full_response = full_response.strip()
+    full_response = str(full_response).strip()
     if len(full_response) > 200:
         full_response = full_response[:200]
     
