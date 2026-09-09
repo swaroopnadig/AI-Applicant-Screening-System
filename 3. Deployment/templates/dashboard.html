@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Recruiter Dashboard - AI Interview Platform</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 20px;
+        }
+        .dashboard-container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .dashboard-card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+        .dashboard-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 25px 30px;
+            color: white;
+        }
+        .dashboard-header h2 {
+            margin: 0;
+            font-weight: 700;
+        }
+        .dashboard-header p {
+            margin: 5px 0 0 0;
+            opacity: 0.9;
+        }
+        .stats-container {
+            padding: 30px;
+        }
+        .stat-card {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 25px;
+            text-align: center;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease;
+        }
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+        .stat-card .icon {
+            font-size: 40px;
+            margin-bottom: 15px;
+        }
+        .stat-card .number {
+            font-size: 36px;
+            font-weight: 700;
+            color: #667eea;
+        }
+        .stat-card .label {
+            font-size: 14px;
+            color: #666;
+            margin-top: 5px;
+        }
+        .table-container {
+            padding: 30px;
+            padding-top: 0;
+        }
+        .table thead th {
+            background: #f8f9fa;
+            border: none;
+            font-weight: 600;
+            color: #333;
+            padding: 15px;
+        }
+        .table tbody td {
+            padding: 15px;
+            vertical-align: middle;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .table tbody tr:hover {
+            background: #f8f9fa;
+            cursor: pointer;
+        }
+        .rank-badge {
+            display: inline-block;
+            width: 35px;
+            height: 35px;
+            line-height: 35px;
+            text-align: center;
+            border-radius: 50%;
+            font-weight: 700;
+            font-size: 14px;
+            color: white;
+        }
+        .rank-1 {
+            background: linear-gradient(135deg, #ffd700 0%, #ffb900 100%);
+            box-shadow: 0 4px 15px rgba(255, 215, 0, 0.4);
+        }
+        .rank-2 {
+            background: linear-gradient(135deg, #c0c0c0 0%, #a8a8a8 100%);
+            box-shadow: 0 4px 15px rgba(192, 192, 192, 0.4);
+        }
+        .rank-3 {
+            background: linear-gradient(135deg, #cd7f32 0%, #b87333 100%);
+            box-shadow: 0 4px 15px rgba(205, 127, 50, 0.4);
+        }
+        .rank-4, .rank-5 {
+            background: #3498db;
+        }
+        .back-btn {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            text-decoration: none;
+            transition: background 0.3s ease;
+        }
+        .back-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            color: white;
+            text-decoration: none;
+        }
+        .nav-links {
+            margin-top: 15px;
+        }
+        .nav-links a {
+            color: rgba(255, 255, 255, 0.8);
+            margin-right: 20px;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        .nav-links a:hover {
+            color: white;
+            text-decoration: none;
+        }
+        .chart-container {
+            padding: 30px;
+            padding-top: 0;
+        }
+        .chart-card {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        .chart-card h5 {
+            color: #333;
+            font-weight: 600;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <div class="dashboard-card">
+            <div class="dashboard-header">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h2>Recruiter Dashboard</h2>
+                        <p>Overview of your recruitment activities</p>
+                    </div>
+                    <div class="export-buttons">
+                        <a href="/export/csv" class="btn btn-light mr-2"><i class="fas fa-file-csv mr-1"></i>Export CSV</a>
+                        <button onclick="exportPDF()" class="btn btn-light"><i class="fas fa-file-pdf mr-1"></i>Export PDF</button>
+                    </div>
+                </div>
+                <div class="nav-links">
+                    <a href="/admin/jobs"><i class="fas fa-briefcase mr-1"></i>Jobs</a>
+                    <a href="/admin/weightage"><i class="fas fa-sliders-h mr-1"></i>Weightage</a>
+                    <a href="/admin"><i class="fas fa-users mr-1"></i>Candidates</a>
+                </div>
+            </div>
+            
+            <div class="stats-container">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="stat-card">
+                            <div class="icon text-primary">
+                                <i class="fas fa-briefcase"></i>
+                            </div>
+                            <div class="number">{{ dashboard.total_jobs }}</div>
+                            <div class="label">Total Jobs Posted</div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="stat-card">
+                            <div class="icon text-success">
+                                <i class="fas fa-users"></i>
+                            </div>
+                            <div class="number">{{ dashboard.total_candidates }}</div>
+                            <div class="label">Candidates Evaluated</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="chart-card">
+                            <h5><i class="fas fa-chart-bar mr-2"></i>Candidates by Score Range</h5>
+                            <canvas id="scoreDistributionChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="chart-card">
+                            <h5><i class="fas fa-chart-pie mr-2"></i>Interview Status Distribution</h5>
+                            <canvas id="statusDistributionChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="table-container">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h4 class="mb-0">Top Ranked Candidates</h4>
+                </div>
+                {% if dashboard.top_candidates %}
+                <div class="table-responsive">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Position</th>
+                                <th>Weighted Score</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for candidate in dashboard.top_candidates %}
+                            <tr onclick="window.location.href='/admin/candidate/{{ candidate.session_id }}'">
+                                <td>
+                                    <span class="rank-badge rank-{{ candidate.rank }}">{{ candidate.rank }}</span>
+                                </td>
+                                <td><strong>{{ candidate.name }}</strong></td>
+                                <td>{{ candidate.email or 'N/A' }}</td>
+                                <td>{{ candidate.position }}</td>
+                                <td>
+                                    <span class="badge {% if candidate.avg_weighted >= 7 %}badge-success{% elif candidate.avg_weighted >= 5 %}badge-warning{% else %}badge-danger{% endif %}">
+                                        {{ candidate.avg_weighted }}
+                                    </span>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle mr-2"></i>No candidates have been evaluated yet.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Score Distribution Chart
+        const scoreCtx = document.getElementById('scoreDistributionChart').getContext('2d');
+        const scoreDistributionChart = new Chart(scoreCtx, {
+            type: 'bar',
+            data: {
+                labels: ['0-2', '2-4', '4-6', '6-8', '8-10'],
+                datasets: [{
+                    label: 'Number of Candidates',
+                    data: {{ dashboard.score_distribution or [0, 0, 0, 0, 0] }},
+                    backgroundColor: [
+                        'rgba(231, 76, 60, 0.8)',
+                        'rgba(243, 156, 18, 0.8)',
+                        'rgba(52, 152, 219, 0.8)',
+                        'rgba(46, 204, 113, 0.8)',
+                        'rgba(39, 174, 96, 0.8)'
+                    ],
+                    borderColor: [
+                        'rgba(231, 76, 60, 1)',
+                        'rgba(243, 156, 18, 1)',
+                        'rgba(52, 152, 219, 1)',
+                        'rgba(46, 204, 113, 1)',
+                        'rgba(39, 174, 96, 1)'
+                    ],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            stepSize: 1
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                }
+            }
+        });
+        
+        // Status Distribution Chart
+        const statusCtx = document.getElementById('statusDistributionChart').getContext('2d');
+        const statusDistributionChart = new Chart(statusCtx, {
+            type: 'doughnut',
+            data: {
+                labels: {{ dashboard.status_labels or ['Active', 'Completed', 'Inactive'] | safe }},
+                datasets: [{
+                    data: {{ dashboard.status_counts or [0, 0, 0] }},
+                    backgroundColor: [
+                        'rgba(39, 174, 96, 0.8)',
+                        'rgba(52, 152, 219, 0.8)',
+                        'rgba(149, 165, 166, 0.8)'
+                    ],
+                    borderColor: [
+                        'rgba(39, 174, 96, 1)',
+                        'rgba(52, 152, 219, 1)',
+                        'rgba(149, 165, 166, 1)'
+                    ],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>

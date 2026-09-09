@@ -1,0 +1,329 @@
+# PROJECT CONTEXT - AI Interview Platform
+
+## PROJECT NAME
+AI-Assisted Applicant Screening and Ranking System
+
+## PROJECT TYPE
+MCA Final Year Project
+
+## TECHNOLOGY STACK
+
+### Backend
+- **Language**: Python
+- **Framework**: Flask
+- **Database**: SQLAlchemy ORM
+- **Database Engine**: MySQL/SQLite (SQLite for development, MySQL for production)
+
+### Frontend
+- **HTML**: HTML5
+- **CSS**: CSS3 with Bootstrap 4
+- **JavaScript**: Vanilla JavaScript with jQuery
+- **UI Framework**: Bootstrap 4.5.2
+- **Icons**: Font Awesome 6.4.0
+
+### AI/ML
+- **AI Model**: Google Generative AI (Gemini)
+- **Speech-to-Text**: Whisper (faster-whisper)
+- **NLP**: spaCy, NLTK
+- **Resume Parsing**: Custom parser with PDF/DOCX support
+- **Libraries**: pdfminer.six, docx2txt
+
+### Data Visualization
+- **Library**: Chart.js (planned for analytics dashboard)
+
+## CORE FEATURES
+
+### 1. Authentication
+- User registration and login
+- Role-based access control (Admin, Recruiter, Candidate)
+- Session management
+- Password hashing
+
+### 2. Resume Upload
+- File upload support (PDF, DOCX, TXT)
+- File validation and security
+- Secure filename handling
+- File size limits
+
+### 3. Resume Parsing
+- PDF parsing using pdfminer.six
+- DOCX parsing using docx2txt
+- Text extraction and processing
+- Structured data extraction:
+  - Name
+  - Email
+  - Mobile number
+  - Skills
+  - Experience
+  - Education
+  - College name
+
+### 4. Skill Extraction
+- Regex-based skill extraction
+- Skill matching from predefined lists
+- Skill categorization
+- Skill confidence scoring
+
+### 5. Job Management
+- Create job postings
+- Edit job details
+- Delete job postings
+- Job-specific skill requirements
+- Job-specific question templates
+
+### 6. Dynamic Weightage
+- Configurable weightage per skill
+- Position-specific weightage
+- Customizable evaluation criteria
+- Weight adjustment based on job requirements
+
+### 7. Weighted Scoring
+- AI-powered answer evaluation
+- Technical accuracy scoring (1-10)
+- Communication scoring (1-10)
+- Problem solving scoring (1-10)
+- Weighted final score calculation
+- Qualitative feedback generation
+
+### 8. Candidate Ranking
+- Rank candidates by weighted scores
+- Filter by skills/experience
+- Compare candidates side-by-side
+- Generate ranking reports
+- Export ranking data
+
+### 9. Recruiter Dashboard
+- Candidate overview table
+- Average scores display
+- Status tracking (Active/Completed)
+- Detailed candidate profiles
+- Turn-by-turn Q&A review
+- Performance metrics
+
+### 10. Real-Time Features
+- Streaming AI responses (zero lag)
+- Voice input with Whisper STT
+- Grammar checking
+- Speaking pace analysis
+- Real-time feedback
+
+## PROJECT GOALS
+
+### Primary Goals
+1. **100% Free and Open Source**: All dependencies must be free/open-source
+2. **Resume-Worthy**: Demonstrate professional development skills
+3. **MCA Final-Year Project**: Meet academic requirements
+4. **Production-Ready**: Deployable to production environment
+5. **Maintainable**: Clean, modular, well-documented code
+6. **Deployable**: Easy deployment to cloud platforms
+
+### Secondary Goals
+1. **No Unnecessary Complexity**: Keep architecture simple and focused
+2. **Professional UI**: Modern, responsive, user-friendly interface
+3. **Scalable**: Support multiple concurrent users
+4. **Secure**: Implement security best practices
+5. **Performant**: Fast response times, efficient resource usage
+
+## ARCHITECTURE PRINCIPLES
+
+### Design Philosophy
+- **Simplicity**: Avoid over-engineering
+- **Modularity**: Separate concerns into modules
+- **Extensibility**: Easy to add new features
+- **Maintainability**: Clean code, good documentation
+- **Performance**: Optimize for speed and efficiency
+
+### Development Principles
+- **Free/Open-Source Only**: No proprietary dependencies
+- **Backwards Compatibility**: Preserve existing functionality
+- **Incremental Development**: One feature at a time
+- **Testing**: Test thoroughly before deployment
+- **Documentation**: Document all changes and decisions
+
+## CURRENT STATUS
+
+### Completed Features
+✅ Resume parsing (PDF/DOCX/TXT)
+✅ AI-powered interview questions
+✅ Real-time response streaming
+✅ AI scoring (Technical, Communication, Problem Solving)
+✅ Database architecture (Candidate, Session, Score tables)
+✅ Admin dashboard with candidate overview
+✅ Voice input with Whisper STT
+✅ Grammar and pace checking
+✅ Quit intent detection
+✅ Environment variable configuration
+
+### In Progress
+⏳ Authentication system (planned)
+⏳ Job management (planned)
+⏳ Weighted scoring (planned)
+
+### Planned Features
+📋 User authentication and authorization
+📋 Job posting management
+📋 Dynamic weightage configuration
+📋 Weighted scoring system
+📋 Candidate ranking and comparison
+📋 Email notifications
+📋 Report export (PDF/CSV)
+📋 Advanced analytics dashboard
+
+## DEPLOYMENT TARGET
+
+### Development Environment
+- **OS**: Windows
+- **Python**: 3.12 (venv312)
+- **Database**: SQLite
+- **Server**: Flask development server
+
+### Production Environment
+- **Platform**: Render (free tier)
+- **Database**: PostgreSQL
+- **Server**: Gunicorn (WSGI server)
+- **URL**: HTTPS (SSL certificate)
+
+## CONSTRAINTS
+
+### Technical Constraints
+1. **Free Dependencies Only**: No paid libraries or services
+2. **Python 3.8+**: Minimum Python version requirement
+3. **Flask Framework**: Must use Flask (no Django/FastAPI)
+4. **SQLAlchemy**: Must use SQLAlchemy ORM
+5. **Bootstrap**: Must use Bootstrap for UI
+
+### Time Constraints
+1. **MCA Project Timeline**: Academic semester timeline
+2. **Development Time**: Limited development hours
+3. **Testing Time**: Adequate testing before submission
+
+### Resource Constraints
+1. **Free Hosting**: Use free tier hosting (Render)
+2. **Free Database**: Use free PostgreSQL tier
+3. **Free AI API**: Use Gemini free tier
+
+## SUCCESS METRICS
+
+### Functional Metrics
+- [ ] Resume parsing accuracy > 90%
+- [ ] AI scoring consistency > 85%
+- [ ] Response time < 3 seconds
+- [ ] Multi-user support (10+ concurrent)
+- [ ] Zero critical bugs
+
+### Academic Metrics
+- [ ] Meets MCA project requirements
+- [ ] Demonstrates technical skills
+- [ ] Shows software engineering practices
+- [ ] Includes documentation
+- [ ] Ready for presentation
+
+### Production Metrics
+- [ ] Deployed to production
+- [ ] SSL/HTTPS enabled
+- [ ] Database backups configured
+- [ ] Error logging implemented
+- [ ] Monitoring in place
+
+## ST stakeholders
+
+### Primary Stakeholders
+1. **Academic Evaluators**: MCA project evaluators
+2. **Project Supervisor**: Academic supervisor
+3. **Development Team**: Student developers
+
+### Secondary Stakeholders
+1. **Recruiters**: Potential users of the system
+2. **Candidates**: End users of the interview system
+3. **Future Developers**: Maintainers of the codebase
+
+## RISK MANAGEMENT
+
+### Technical Risks
+1. **AI API Rate Limits**: Mitigate with caching
+2. **Database Performance**: Mitigate with optimization
+3. **Security Vulnerabilities**: Mitigate with best practices
+4. **Scalability Issues**: Mitigate with architecture design
+
+### Project Risks
+1. **Time Constraints**: Mitigate with prioritization
+2. **Scope Creep**: Mitigate with clear requirements
+3. **Technical Debt**: Mitigate with refactoring
+4. **Dependency Issues**: Mitigate with version pinning
+
+## QUALITY STANDARDS
+
+### Code Quality
+- PEP 8 compliance
+- Docstrings for all functions
+- Meaningful variable names
+- Comments for complex logic
+- No code duplication
+
+### Testing Standards
+- Unit tests for critical functions
+- Integration tests for database operations
+- Route tests for Flask endpoints
+- Manual testing for UI components
+
+### Documentation Standards
+- README with setup instructions
+- API documentation
+- Code comments
+- Architecture documentation
+- Deployment guide
+
+## VERSION CONTROL
+
+### Git Workflow
+- **Main Branch**: Production-ready code
+- **Feature Branches**: One branch per feature
+- **Commit Messages**: Descriptive and consistent
+- **Code Review**: Review before merging
+
+### Branch Naming
+- `feature/authentication`
+- `feature/job-management`
+- `bugfix/scoring-error`
+- `refactor/database-optimization`
+
+## MAINTENANCE PLAN
+
+### Short-term (0-6 months)
+- Bug fixes
+- Performance optimization
+- Security updates
+- Documentation updates
+
+### Long-term (6-12 months)
+- Feature enhancements
+- Architecture improvements
+- Dependency updates
+- Technology upgrades
+
+## FUTURE ENHANCEMENTS
+
+### Potential Features
+1. Video interview support
+2. OCR for scanned PDFs
+3. Multi-language support
+4. PWA conversion
+5. Mobile app development
+6. Advanced analytics
+7. Machine learning improvements
+8. Integration with job boards
+
+## CONCLUSION
+
+This project is an AI-assisted applicant screening and ranking system designed as an MCA final-year project. It uses modern web technologies and AI to automate the interview process, providing recruiters with efficient candidate evaluation tools.
+
+The project focuses on:
+- **Professional Quality**: Industry-standard practices
+- **Academic Excellence**: Meets MCA requirements
+- **Practical Utility**: Real-world application
+- **Technical Innovation**: AI integration
+- **Sustainable Development**: Maintainable codebase
+
+**Project Status**: Development phase, core features implemented, additional features planned.
+
+**Next Steps**: Implement authentication system, job management, and weighted scoring to complete MCA project requirements.

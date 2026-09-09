@@ -1,0 +1,6 @@
+John Doe
+Email: john.doe@example.com
+Phone: 555-123-4567
+Skills: Python, Java, Machine Learning, Docker, AWS
+Education: MIT - Computer Science
+Experience: Software Engineer at Tech Corp (2020-2024)
