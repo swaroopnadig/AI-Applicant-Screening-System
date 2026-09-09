@@ -165,65 +165,51 @@
             </div>
             <div class="table-container">
                 <div class="d-flex justify-content-between align-items-center mb-4">
-                    <h4 class="mb-0">Candidates Overview</h4>
-                    <a href="/" class="back-btn"><i class="fas fa-arrow-left mr-2"></i>Back to Home</a>
+                    <h4 class="mb-0">Applicant Leaderboard</h4>
+                    <div>
+                        <a href="/admin/export-shortlist" class="btn btn-success mr-2"><i class="fas fa-download mr-2"></i>Export Shortlist</a>
+                        <a href="/" class="back-btn"><i class="fas fa-arrow-left mr-2"></i>Back to Home</a>
+                    </div>
+                </div>
+                <div class="form-row mb-3">
+                    <div class="col-md-8">
+                        <input id="candidateSearch" class="form-control" placeholder="Search candidate, email, or job">
+                    </div>
+                    <div class="col-md-4">
+                        <input id="scoreThreshold" type="number" min="0" max="100" value="0" class="form-control" placeholder="Minimum final score">
+                    </div>
                 </div>
                 {% if candidates %}
                 <div class="table-responsive">
-                    <table class="table">
+                    <table class="table" id="leaderboard">
                         <thead>
                             <tr>
-                                <th>Name</th>
-                                <th>Email</th>
-                                <th>Position</th>
+                                <th>Candidate</th>
+                                <th>Job</th>
+                                <th>Resume</th>
+                                <th>Skills</th>
+                                <th>AI Response</th>
+                                <th>Final Score</th>
                                 <th>Status</th>
-                                <th>Tech Score</th>
-                                <th>Comm Score</th>
-                                <th>Problem Solving</th>
                                 <th>Date</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for candidate in candidates %}
-                            <tr onclick="showCandidateDetails({{ candidate.session_id }})" {% if not candidate.session_id %}style="cursor: not-allowed; opacity: 0.6;"{% endif %}>
+                            <tr data-score="{{ candidate.final_weighted_score }}" data-search="{{ candidate.name }} {{ candidate.email }} {{ candidate.position }}" onclick="showCandidateDetails({{ candidate.session_id or 0 }})">
                                 <td>
                                     <strong>{{ candidate.name }}</strong>
+                                    <br><small class="text-muted">{{ candidate.email or 'N/A' }}</small>
                                     {% if candidate.resume_filename %}
                                     <br><small class="text-muted"><i class="fas fa-file-alt mr-1"></i>{{ candidate.resume_filename }}</small>
                                     {% endif %}
                                 </td>
-                                <td>{{ candidate.email or 'N/A' }}</td>
                                 <td>{{ candidate.position }}</td>
-                                <td>
-                                    {% if candidate.status == 'Active' %}
-                                    <span class="badge badge-active">Active</span>
-                                    {% elif candidate.status == 'Completed' %}
-                                    <span class="badge badge-completed">Completed</span>
-                                    {% else %}
-                                    <span class="badge badge-inactive">{{ candidate.status }}</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if candidate.avg_technical > 0 %}
-                                    <span class="score-badge {% if candidate.avg_technical >= 7 %}score-high{% elif candidate.avg_technical >= 5 %}score-medium{% else %}score-low{% endif %}">{{ candidate.avg_technical }}</span>
-                                    {% else %}
-                                    <span class="text-muted">--</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if candidate.avg_communication > 0 %}
-                                    <span class="score-badge {% if candidate.avg_communication >= 7 %}score-high{% elif candidate.avg_communication >= 5 %}score-medium{% else %}score-low{% endif %}">{{ candidate.avg_communication }}</span>
-                                    {% else %}
-                                    <span class="text-muted">--</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if candidate.avg_problem_solving > 0 %}
-                                    <span class="score-badge {% if candidate.avg_problem_solving >= 7 %}score-high{% elif candidate.avg_problem_solving >= 5 %}score-medium{% else %}score-low{% endif %}">{{ candidate.avg_problem_solving }}</span>
-                                    {% else %}
-                                    <span class="text-muted">--</span>
-                                    {% endif %}
-                                </td>
+                                <td>{{ candidate.resume_score }}%</td>
+                                <td>{{ candidate.skills_score }}%</td>
+                                <td>{{ candidate.ai_response_score }}%</td>
+                                <td><span class="score-badge {% if candidate.final_weighted_score >= 75 %}score-high{% elif candidate.final_weighted_score >= 50 %}score-medium{% else %}score-low{% endif %}">{{ candidate.final_weighted_score }}%</span></td>
+                                <td><span class="badge badge-{{ 'completed' if candidate.status == 'Shortlisted' else 'inactive' }}">{{ candidate.status }}</span></td>
                                 <td>{{ candidate.created_at }}</td>
                             </tr>
                             {% endfor %}
@@ -264,6 +250,18 @@
     <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        function filterLeaderboard() {
+            const query = document.getElementById('candidateSearch').value.toLowerCase();
+            const threshold = Number(document.getElementById('scoreThreshold').value || 0);
+            document.querySelectorAll('#leaderboard tbody tr').forEach(row => {
+                const matchesText = row.dataset.search.toLowerCase().includes(query);
+                const matchesScore = Number(row.dataset.score) >= threshold;
+                row.style.display = matchesText && matchesScore ? '' : 'none';
+            });
+        }
+        document.getElementById('candidateSearch').addEventListener('input', filterLeaderboard);
+        document.getElementById('scoreThreshold').addEventListener('input', filterLeaderboard);
+
         function showCandidateDetails(sessionId) {
             if (!sessionId) return;
             

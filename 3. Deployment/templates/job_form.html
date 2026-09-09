@@ -151,6 +151,16 @@
                         <input type="text" class="form-control" id="required_skills" name="required_skills" placeholder="e.g., Python, JavaScript, SQL, Machine Learning (comma-separated)" value="{% if job %}{{ job.required_skills_list|join(', ') }}{% endif %}">
                         <small class="help-text">Enter skills separated by commas</small>
                     </div>
+
+                    <div class="form-group">
+                        <label for="scenario_prompt">Candidate Evaluation Scenario</label>
+                        <textarea class="form-control" id="scenario_prompt" name="scenario_prompt" rows="3" placeholder="Describe the practical scenario candidates should answer...">{% if job %}{{ job.scenario_prompt or '' }}{% endif %}</textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="cutoff_score">Shortlist Cut-off (%)</label>
+                        <input type="number" class="form-control" id="cutoff_score" name="cutoff_score" min="0" max="100" step="0.1" value="{% if job %}{{ job.cutoff_score or 75 }}{% else %}75{% endif %}">
+                    </div>
                     
                     <div class="row">
                         <div class="col-md-6">
@@ -182,12 +192,12 @@
                                 <input type="number" class="form-control" id="weight_skills" name="weight_skills" min="0" max="100" value="{% if job %}{{ job.weight_skills }}{% else %}40{% endif %}">
                             </div>
                             <div class="weightage-input">
-                                <label for="weight_experience">Experience (%)</label>
-                                <input type="number" class="form-control" id="weight_experience" name="weight_experience" min="0" max="100" value="{% if job %}{{ job.weight_experience }}{% else %}30{% endif %}">
+                                <label for="weight_resume">Resume (%)</label>
+                                <input type="number" class="form-control" id="weight_resume" name="weight_resume" min="0" max="100" step="0.1" value="{% if job %}{{ job.weight_resume or job.weight_experience }}{% else %}30{% endif %}">
                             </div>
                             <div class="weightage-input">
-                                <label for="weight_education">Education (%)</label>
-                                <input type="number" class="form-control" id="weight_education" name="weight_education" min="0" max="100" value="{% if job %}{{ job.weight_education }}{% else %}30{% endif %}">
+                                <label for="weight_ai">AI Scenario (%)</label>
+                                <input type="number" class="form-control" id="weight_ai" name="weight_ai" min="0" max="100" step="0.1" value="{% if job %}{{ job.weight_ai or job.weight_education }}{% else %}30{% endif %}">
                             </div>
                         </div>
                     </div>

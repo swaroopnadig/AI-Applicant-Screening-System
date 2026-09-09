@@ -121,6 +121,10 @@ class Job(Base):
     weight_skills = Column(Integer, default=40)  # weight percentage
     weight_experience = Column(Integer, default=30)  # weight percentage
     weight_education = Column(Integer, default=30)  # weight percentage
+    weight_resume = Column(Float, default=30.0)
+    weight_ai = Column(Float, default=30.0)
+    cutoff_score = Column(Float, default=75.0)
+    scenario_prompt = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     created_by = Column(Integer, ForeignKey("users.id"))
 
@@ -134,11 +138,53 @@ class JobApplication(Base):
     candidate_id = Column(Integer, ForeignKey("candidates.id"))
     applied_at = Column(DateTime, default=datetime.utcnow)
     status = Column(String(20), default="Applied")  # Applied, Reviewing, Interviewed, Rejected, Hired
+    evaluations = relationship("CandidateEvaluation", back_populates="application")
+
+
+class CandidateEvaluation(Base):
+    """Auditable composite screening score for a job application."""
+    __tablename__ = "candidate_evaluations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    application_id = Column(Integer, ForeignKey("job_applications.id"), unique=True, nullable=False)
+    resume_score = Column(Float, default=0.0, nullable=False)
+    skills_score = Column(Float, default=0.0, nullable=False)
+    ai_response_score = Column(Float, default=0.0, nullable=False)
+    final_weighted_score = Column(Float, default=0.0, nullable=False)
+    status = Column(String(20), default="Pending", nullable=False)
+    breakdown_json = Column(Text, default="{}")
+    evaluated_at = Column(DateTime, nullable=True)
+
+    application = relationship("JobApplication", back_populates="evaluations")
 
 
 def init_db():
     """Initialize database tables"""
     Base.metadata.create_all(bind=engine)
+    _add_missing_columns()
+
+
+def _add_missing_columns():
+    """Add newly introduced Job columns to existing development databases."""
+    if engine.dialect.name == "sqlite":
+        with engine.connect() as connection:
+            columns = {
+                row[1] for row in connection.exec_driver_sql("PRAGMA table_info(jobs)").fetchall()
+            }
+    else:
+        from sqlalchemy import inspect
+        columns = {column["name"] for column in inspect(engine).get_columns("jobs")}
+
+    additions = {
+        "weight_resume": "FLOAT DEFAULT 30.0",
+        "weight_ai": "FLOAT DEFAULT 30.0",
+        "cutoff_score": "FLOAT DEFAULT 75.0",
+        "scenario_prompt": "TEXT",
+    }
+    with engine.begin() as connection:
+        for name, definition in additions.items():
+            if name not in columns:
+                connection.exec_driver_sql(f"ALTER TABLE jobs ADD COLUMN {name} {definition}")
 
 
 def get_db():

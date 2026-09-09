@@ -1,21 +1,30 @@
+from concurrent.futures import ThreadPoolExecutor
+import os
+import json
+import re
+import uuid
+import zipfile
+
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session, Response, stream_with_context
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+
+from config import Config
 from model import generate_output, generate_output_stream, generate_score
 from faster_whisper import WhisperModel
-import os
-import json
-import uuid
 from resume_parser import parse_resume, FileValidationError, ResumeParsingError
-from database import init_db, get_db, Resume, Candidate, InterviewSession, AIScore, User, Job, JobApplication
+from database import (
+    init_db, get_db, Resume, Candidate, InterviewSession, AIScore, User, Job,
+    JobApplication, CandidateEvaluation,
+)
+from scoring_engine import calculate_composite_score
 
 model_audio = WhisperModel(model_size_or_path="small")
 
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
-app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB max file size
+app.config.from_object(Config)
+app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(__file__), 'uploads')
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # Initialize database
@@ -38,49 +47,133 @@ def load_user(user_id):
 
 
 # File upload validation
-ALLOWED_EXTENSIONS = {'pdf', 'docx', 'txt'}
+ALLOWED_EXTENSIONS = {'pdf', 'docx'}
 ALLOWED_MIME_TYPES = {
     'pdf': ['application/pdf'],
     'docx': ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
-    'txt': ['text/plain']
 }
 
+
 def allowed_file(filename):
-    """Check if file extension is allowed"""
+    """Check if file extension is allowed."""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+
 def validate_mime_type(file, filename):
-    """Validate file MIME type"""
+    """Validate file MIME type."""
     ext = filename.rsplit('.', 1)[1].lower()
     file.seek(0)
     header = file.read(2048)
     file.seek(0)
-    
-    # For PDF files, check magic bytes
+
     if ext == 'pdf':
         return header.startswith(b'%PDF')
-    
-    # For text files, check if it's readable text
-    if ext == 'txt':
-        try:
-            header.decode('utf-8')
-            return True
-        except UnicodeDecodeError:
-            return False
-    
-    # For DOCX, it's harder to validate without parsing, so we'll rely on extension
-    # but could add zip header check if needed
+
     if ext == 'docx':
-        return True
-    
+        return header.startswith(b'PK')
+
     return False
 
-name = []
-position = []
-prev_q = []
-flag = 0
-feedback = ["Grammatical correction here"]
-pace = 0.0
+
+def _init_session_state():
+    if 'interview_state' not in session:
+        session['interview_state'] = {
+            'name': '',
+            'position': 'Software Developer',
+            'prev_q': [],
+            'flag': 0,
+            'feedback': ['Grammatical correction here'],
+            'pace': 0.0,
+        }
+    return session['interview_state']
+
+
+def get_interview_state():
+    return _init_session_state()
+
+
+def _fallback_resume_parser(text, filename='resume'):
+    data = {'name': '', 'email': '', 'mobile_number': '', 'skills': [], 'college_name': [], 'total_experience': ''}
+    if not text:
+        return data
+
+    match_email = re.search(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}', text)
+    if match_email:
+        data['email'] = match_email.group(0)
+
+    match_phone = re.search(r'(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4})', text)
+    if match_phone:
+        data['mobile_number'] = re.sub(r'\s+', '', match_phone.group(0))
+
+    match_name = re.search(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b', text)
+    if match_name:
+        data['name'] = match_name.group(1)
+
+    skill_keywords = [
+        'Python', 'Java', 'JavaScript', 'TypeScript', 'Flask', 'Django', 'React', 'Node', 'SQL', 'PostgreSQL',
+        'MySQL', 'MongoDB', 'AWS', 'Docker', 'Kubernetes', 'Azure', 'Git', 'Linux', 'Machine Learning', 'AI',
+        'NLP', 'C++', 'C#', 'Data Analysis', 'Power BI', 'Tableau', 'REST API', 'API', 'HTML', 'CSS'
+    ]
+    found_skills = []
+    for skill in skill_keywords:
+        if re.search(rf'\b{re.escape(skill)}\b', text, re.IGNORECASE):
+            found_skills.append(skill)
+    data['skills'] = found_skills[:10]
+
+    college_matches = re.findall(r'([A-Z][A-Za-z0-9&.\- ]+(?:University|Institute|College|School))', text)
+    if college_matches:
+        data['college_name'] = list(dict.fromkeys(college_matches))[:3]
+
+    experience_match = re.search(r'(\d+(?:\.\d+)?)\s*(?:years?|yrs?)\s*(?:of\s*)?experience', text, re.IGNORECASE)
+    if not experience_match:
+        experience_match = re.search(r'(\d+)\s*(?:years?|yrs?)', text, re.IGNORECASE)
+    if experience_match:
+        data['total_experience'] = experience_match.group(1)
+
+    if not data['name'] and filename:
+        base_name = os.path.splitext(os.path.basename(filename))[0]
+        sanitized = re.sub(r'[_-]+', ' ', base_name)
+        if sanitized and 'resume' not in sanitized.lower():
+            data['name'] = sanitized.title()
+
+    return data
+
+
+def _safe_gemini_call(prompt, fallback_parser=None, timeout_seconds=15):
+    if not os.getenv('GEMINI_API_KEY'):
+        if callable(fallback_parser):
+            return fallback_parser(prompt)
+        return ''
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(generate_output, prompt)
+            return future.result(timeout=timeout_seconds)
+    except Exception:
+        if callable(fallback_parser):
+            return fallback_parser(prompt)
+        return ''
+
+
+def _fallback_score_parser(prompt):
+    text = prompt or ''
+    technical = re.search(r'technical_accuracy\s*[:=]\s*(\d)', text, re.IGNORECASE)
+    communication = re.search(r'communication\s*[:=]\s*(\d)', text, re.IGNORECASE)
+    problem = re.search(r'problem_solving\s*[:=]\s*(\d)', text, re.IGNORECASE)
+    feedback = 'Response captured with rule-based fallback evaluation.'
+    return {
+        'technical_accuracy': int(technical.group(1)) if technical else 6,
+        'communication': int(communication.group(1)) if communication else 6,
+        'problem_solving': int(problem.group(1)) if problem else 6,
+        'feedback': feedback,
+    }
+
+
+def _fallback_grammar_parser(text):
+    if not text:
+        return 'No text provided'
+    cleaned = re.sub(r'\s+', ' ', text).strip()
+    return cleaned if cleaned else 'No text provided'
 
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -253,12 +346,16 @@ def create_job():
         weight_skills = request.form.get("weight_skills", 40)
         weight_experience = request.form.get("weight_experience", 30)
         weight_education = request.form.get("weight_education", 30)
+        weight_resume = request.form.get("weight_resume", weight_experience)
+        weight_ai = request.form.get("weight_ai", weight_education)
+        cutoff_score = request.form.get("cutoff_score", 75)
+        scenario_prompt = request.form.get("scenario_prompt", "")
         
         if not title or not company:
             return render_template('job_form.html', error="Title and company are required")
         
         # Validate weightage sums to 100
-        total_weight = int(weight_skills) + int(weight_experience) + int(weight_education)
+        total_weight = float(weight_skills) + float(weight_resume) + float(weight_ai)
         if total_weight != 100:
             return render_template('job_form.html', error=f"Total weightage must be 100 (current: {total_weight})")
         
@@ -276,8 +373,12 @@ def create_job():
                 minimum_experience=int(minimum_experience),
                 minimum_education=minimum_education,
                 weight_skills=int(weight_skills),
-                weight_experience=int(weight_experience),
-                weight_education=int(weight_education),
+                weight_experience=int(float(weight_resume)),
+                weight_education=int(float(weight_ai)),
+                weight_resume=float(weight_resume),
+                weight_ai=float(weight_ai),
+                cutoff_score=float(cutoff_score),
+                scenario_prompt=scenario_prompt,
                 created_by=current_user.id
             )
             db.add(new_job)
@@ -313,12 +414,16 @@ def edit_job(job_id):
             required_skills = request.form.get("required_skills")
             job.minimum_experience = int(request.form.get("minimum_experience", 0))
             job.minimum_education = request.form.get("minimum_education")
-            job.weight_skills = int(request.form.get("weight_skills", 40))
-            job.weight_experience = int(request.form.get("weight_experience", 30))
-            job.weight_education = int(request.form.get("weight_education", 30))
+            job.weight_skills = float(request.form.get("weight_skills", 40))
+            job.weight_resume = float(request.form.get("weight_resume", request.form.get("weight_experience", 30)))
+            job.weight_ai = float(request.form.get("weight_ai", request.form.get("weight_education", 30)))
+            job.weight_experience = int(job.weight_resume)
+            job.weight_education = int(job.weight_ai)
+            job.cutoff_score = float(request.form.get("cutoff_score", 75))
+            job.scenario_prompt = request.form.get("scenario_prompt", "")
             
             # Validate weightage
-            total_weight = job.weight_skills + job.weight_experience + job.weight_education
+            total_weight = job.weight_skills + job.weight_resume + job.weight_ai
             if total_weight != 100:
                 return render_template('job_form.html', job=job, error=f"Total weightage must be 100 (current: {total_weight})")
             
@@ -355,50 +460,38 @@ def delete_job(job_id):
 @login_required
 def admin():
     """Recruiter admin dashboard"""
+    if current_user.role not in ['admin', 'recruiter']:
+        return redirect(url_for('index'))
     db = get_db()
     try:
-        # Get all candidates with their interview sessions and scores
-        candidates = db.query(Candidate).all()
+        applications = db.query(JobApplication).order_by(JobApplication.applied_at.desc()).all()
         candidates_data = []
-        
-        for candidate in candidates:
-            # Get latest interview session
-            latest_session = db.query(InterviewSession).filter_by(candidate_id=candidate.id).order_by(InterviewSession.created_at.desc()).first()
-            
-            if latest_session:
-                # Calculate average scores
-                scores = db.query(AIScore).filter_by(session_id=latest_session.id).all()
-                avg_tech = sum(s.technical_accuracy for s in scores) / len(scores) if scores else 0
-                avg_comm = sum(s.communication for s in scores) / len(scores) if scores else 0
-                avg_problem = sum(s.problem_solving for s in scores) / len(scores) if scores else 0
-                
-                candidates_data.append({
-                    'id': candidate.id,
-                    'name': candidate.name,
-                    'email': candidate.email,
-                    'resume_filename': candidate.resume_filename,
-                    'position': latest_session.position,
-                    'status': latest_session.status,
-                    'avg_technical': round(avg_tech, 1),
-                    'avg_communication': round(avg_comm, 1),
-                    'avg_problem_solving': round(avg_problem, 1),
-                    'session_id': latest_session.id,
-                    'created_at': latest_session.created_at.strftime('%Y-%m-%d %H:%M')
-                })
-            else:
-                candidates_data.append({
-                    'id': candidate.id,
-                    'name': candidate.name,
-                    'email': candidate.email,
-                    'resume_filename': candidate.resume_filename,
-                    'position': 'N/A',
-                    'status': 'No Session',
-                    'avg_technical': 0,
-                    'avg_communication': 0,
-                    'avg_problem_solving': 0,
-                    'session_id': None,
-                    'created_at': candidate.created_at.strftime('%Y-%m-%d %H:%M')
-                })
+        for application in applications:
+            evaluation = calculate_composite_score(db, application.id)
+            candidate = db.get(Candidate, application.candidate_id)
+            job = db.get(Job, application.job_id)
+            latest_session = (
+                db.query(InterviewSession)
+                .filter_by(candidate_id=candidate.id)
+                .order_by(InterviewSession.created_at.desc())
+                .first()
+            )
+            candidates_data.append({
+                'id': candidate.id,
+                'application_id': application.id,
+                'name': candidate.name,
+                'email': candidate.email,
+                'resume_filename': candidate.resume_filename,
+                'position': job.title if job else 'N/A',
+                'status': evaluation.status,
+                'resume_score': round(evaluation.resume_score, 1),
+                'skills_score': round(evaluation.skills_score, 1),
+                'ai_response_score': round(evaluation.ai_response_score, 1),
+                'final_weighted_score': round(evaluation.final_weighted_score, 1),
+                'session_id': latest_session.id if latest_session else None,
+                'created_at': application.applied_at.strftime('%Y-%m-%d %H:%M'),
+            })
+        candidates_data.sort(key=lambda item: item['final_weighted_score'], reverse=True)
     except Exception as e:
         print(f"Error fetching admin data: {e}")
         candidates_data = []
@@ -407,9 +500,47 @@ def admin():
     
     return render_template('admin.html', candidates=candidates_data)
 
+
+@app.route("/admin/export-shortlist")
+@login_required
+def export_shortlist():
+    """Export candidates meeting their job's configured cutoff."""
+    if current_user.role not in ['admin', 'recruiter']:
+        return redirect(url_for('index'))
+    import csv
+    from io import StringIO
+
+    db = get_db()
+    try:
+        output = StringIO()
+        writer = csv.writer(output)
+        writer.writerow(['Candidate', 'Email', 'Job', 'Resume Score', 'Skills Score', 'AI Score', 'Final Score', 'Status'])
+        applications = db.query(JobApplication).order_by(JobApplication.applied_at.desc()).all()
+        for application in applications:
+            evaluation = calculate_composite_score(db, application.id)
+            job = db.get(Job, application.job_id)
+            candidate = db.get(Candidate, application.candidate_id)
+            if evaluation.final_weighted_score >= float(getattr(job, 'cutoff_score', 75.0) or 75.0):
+                writer.writerow([
+                    candidate.name, candidate.email or '', job.title if job else '',
+                    f'{evaluation.resume_score:.1f}', f'{evaluation.skills_score:.1f}',
+                    f'{evaluation.ai_response_score:.1f}', f'{evaluation.final_weighted_score:.1f}',
+                    evaluation.status,
+                ])
+        return Response(
+            output.getvalue(),
+            mimetype='text/csv',
+            headers={'Content-Disposition': 'attachment; filename=shortlist.csv'},
+        )
+    finally:
+        db.close()
+
 @app.route("/admin/candidate/<int:session_id>")
+@login_required
 def candidate_details(session_id):
     """Get detailed candidate information and scores"""
+    if current_user.role not in ['admin', 'recruiter']:
+        return jsonify({'error': 'Forbidden'}), 403
     db = get_db()
     try:
         session = db.query(InterviewSession).filter_by(id=session_id).first()
@@ -451,10 +582,9 @@ def home():
     if request.method == "POST":
         username = request.form["username"]
         pos = request.form["position"]
-        print(username)
-        print(pos)
-        name.append(username)
-        position.append(pos)
+        session_state = get_interview_state()
+        session_state['name'] = username
+        session_state['position'] = pos
         
         # Generate session ID
         if 'session_id' not in session:
@@ -500,11 +630,11 @@ def home():
             if resume_file.filename:
                 # Validate file extension
                 if not allowed_file(resume_file.filename):
-                    return render_template('home.html', name=name[0], error="Invalid file type. Only PDF, DOCX, and TXT files are allowed.")
-                
+                   return render_template('home.html', name=session_state.get('name', ''), error="Invalid file type. Only PDF and DOCX files are allowed.")
+
                 # Validate MIME type (magic bytes check)
                 if not validate_mime_type(resume_file, resume_file.filename):
-                    return render_template('home.html', name=name[0], error="File content does not match the file extension. Please upload a valid file.")
+                   return render_template('home.html', name=session_state.get('name', ''), error="File content does not match the file extension. Please upload a valid file.")
                 
                 # Generate secure filename with UUID to prevent collisions
                 original_filename = secure_filename(resume_file.filename)
@@ -525,7 +655,11 @@ def home():
                     
                     # Validate parsed data has minimum required fields
                     if not parsed_data.get('email') and not parsed_data.get('mobile_number'):
-                        return render_template('home.html', name=name[0], error="Resume must contain at least an email or phone number.")
+                        resume_fallback = _fallback_resume_parser(open(filepath, 'r', encoding='utf-8', errors='ignore').read() if filepath.lower().endswith('.txt') else '')
+                        if resume_fallback.get('email') or resume_fallback.get('mobile_number'):
+                            parsed_data = {**parsed_data, **resume_fallback}
+                        else:
+                            return render_template('home.html', name=session_state.get('name', ''), error="Resume must contain at least an email or phone number.")
                     
                     print(f"Resume parsed successfully: {parsed_data.get('email')}, {len(parsed_data.get('skills', []))} skills")
                     
@@ -541,7 +675,7 @@ def home():
                     except Exception as db_error:
                         db.rollback()
                         print(f"Database error updating candidate: {db_error}")
-                        return render_template('home.html', name=name[0], error="Failed to save resume data to database.")
+                        return render_template('home.html', name=session_state.get('name', ''), error="Failed to save resume data to database.")
                     finally:
                         db.close()
                         
@@ -576,30 +710,39 @@ def home():
                     # Clean up uploaded file
                     if os.path.exists(filepath):
                         os.remove(filepath)
-                    return render_template('home.html', name=name[0], error=f"Resume validation failed: {str(e)}")
+                    return render_template('home.html', name=session_state.get('name', ''), error=f"Resume validation failed: {str(e)}")
                 except ResumeParsingError as e:
                     print(f"Resume parsing error: {e}")
+                    # Build a lightweight regex-based fallback from the uploaded file text before cleanup
+                    try:
+                        with open(filepath, 'rb') as fh:
+                            raw = fh.read()
+                        text = raw.decode('utf-8', errors='ignore') if filepath.lower().endswith('.txt') else ''
+                        parsed_data = _fallback_resume_parser(text, filepath)
+                    except Exception:
+                        parsed_data = _fallback_resume_parser('', filepath)
+                    if parsed_data.get('email') or parsed_data.get('mobile_number'):
+                        return render_template('home.html', name=session_state.get('name', ''), resume_data=parsed_data)
                     # Clean up uploaded file
                     if os.path.exists(filepath):
                         os.remove(filepath)
-                    return render_template('home.html', name=name[0], error=f"Resume parsing failed: {str(e)}. Please ensure the file is not corrupted.")
+                    return render_template('home.html', name=session_state.get('name', ''), error=f"Resume parsing failed: {str(e)}. Please ensure the file is not corrupted.")
                 except Exception as e:
                     print(f"Unexpected error during resume processing: {e}")
                     # Clean up uploaded file
                     if os.path.exists(filepath):
                         os.remove(filepath)
-                    return render_template('home.html', name=name[0], error=f"An error occurred while processing your resume. Please try again.")
+                    return render_template('home.html', name=session_state.get('name', ''), error=f"An error occurred while processing your resume. Please try again.")
         
-        return render_template('home.html', name=name[0], resume_data=parsed_data)
-    return render_template('home.html')
+        return render_template('home.html', name=session_state.get('name', ''), resume_data=parsed_data)
+    return render_template('home.html', name=get_interview_state().get('name', ''))
 
 @app.route("/get_flag", methods=["GET"])
 def get_flag():
-    global feedback
-    if len(feedback)>0:
+    feedback = get_interview_state().get('feedback', [])
+    if len(feedback) > 0:
         return jsonify({'flag': feedback[-1]})
-    else :
-        return jsonify({'flag': ''})
+    return jsonify({'flag': ''})
 
 @app.route("/get", methods=["GET", "POST"])
 def chat_():
@@ -628,7 +771,7 @@ DEFAULT_CHUNK_LENGTH = 10
 
 @app.route('/get_text', methods=['GET'])
 def get_text():
-    global pace
+    interview_state = get_interview_state()
     audio_path = "./audio.wav"
     result = model_audio.transcribe(audio_path)
     segments, info = result
@@ -636,27 +779,26 @@ def get_text():
     text = ""
     for segment in segments:
         text += segment.text
-    pace = calculate_speaking_pace(text, chunk_length=DEFAULT_CHUNK_LENGTH)
+    interview_state['pace'] = calculate_speaking_pace(text, chunk_length=DEFAULT_CHUNK_LENGTH)
     return text
 
 @app.route('/get_pace', methods=['GET'])
 def get_pace():
-    global pace
-    global flag
-    output = pace_checker(pace) if flag else ""
+    interview_state = get_interview_state()
+    output = pace_checker(interview_state.get('pace', 0.0)) if interview_state.get('flag', 0) else ""
     return jsonify({'Pace_Checker': output})
 
 
 def get_Chat_response(text):
-    global flag
-    global prev_q
-
-    role = position[0] if len(position) > 0 else "Software Developer"
+    interview_state = get_interview_state()
+    role = interview_state.get('position', 'Software Developer')
+    flag = int(interview_state.get('flag', 0))
+    prev_q = interview_state.get('prev_q', [])
 
     # Build resume context if available (fetch from database)
     resume_context = ""
     resume_data = None
-    
+
     if 'session_id' in session:
         db = get_db()
         try:
@@ -667,7 +809,7 @@ def get_Chat_response(text):
             print(f"Error fetching resume from database: {e}")
         finally:
             db.close()
-    
+
     if resume_data:
         skills = resume_data.get('skills', [])
         experience = resume_data.get('experience', [])
@@ -678,6 +820,8 @@ def get_Chat_response(text):
             resume_context += f"Experience: {experience[0] if experience else 'N/A'}. "
         if education:
             resume_context += f"Education: {education[0] if education else 'N/A'}."
+
+    previous_question = prev_q[-1] if len(prev_q) > 0 else "Tell me about yourself"
 
     if flag == 0:
         prompt = f"""
@@ -703,8 +847,6 @@ Rules:
 - Use the resume context to personalize the question.
 """
     else:
-        previous_question = prev_q[-1] if len(prev_q) > 0 else "Tell me about yourself"
-
         prompt = f"""
 You are a strict technical interviewer.
 
@@ -728,29 +870,32 @@ Rules:
 - Use the resume context to personalize the question.
 """
 
-    flag += 1
+    interview_state['flag'] = flag + 1
 
-    try:
-        output = generate_output(prompt)
-    except Exception:
-        output = "AI service unavailable. Please verify the Gemini API key in the project .env file."
+    def fallback_prompt_response(_prompt):
+        if 'Tell me about yourself' in _prompt:
+            return 'Can you walk me through a project where you solved a real technical problem?'
+        return 'Can you give an example of how you applied your strongest skill to a business problem?'
 
+    output = _safe_gemini_call(prompt, fallback_parser=fallback_prompt_response, timeout_seconds=15)
     feed = grammar_checker(text)
-    feedback.append(feed)
+    interview_state.setdefault('feedback', []).append(feed)
 
-    output = str(output).strip()
+    output = str(output).strip() or fallback_prompt_response(prompt)
 
     if len(output) > 200:
         output = output[:200]
 
     prev_q.append(output)
+    interview_state['prev_q'] = prev_q
 
     return output
 
 def get_Chat_response_stream(text):
     """Streaming version of chat response with AI scoring"""
-    global flag
-    global prev_q
+    interview_state = get_interview_state()
+    flag = int(interview_state.get('flag', 0))
+    prev_q = interview_state.get('prev_q', [])
 
     # Check for quit intent
     quit_keywords = ['quit', 'exit', 'stop', 'end interview', 'finish']
@@ -758,12 +903,12 @@ def get_Chat_response_stream(text):
         yield "INTERVIEW_END"
         return
 
-    role = position[0] if len(position) > 0 else "Software Developer"
+    role = interview_state.get('position', 'Software Developer')
 
     # Build resume context
     resume_context = ""
     resume_data = None
-    
+
     if 'session_id' in session:
         db = get_db()
         try:
@@ -774,7 +919,7 @@ def get_Chat_response_stream(text):
             print(f"Error fetching resume from database: {e}")
         finally:
             db.close()
-    
+
     if resume_data:
         skills = resume_data.get('skills', [])
         experience = resume_data.get('experience', [])
@@ -785,6 +930,8 @@ def get_Chat_response_stream(text):
             resume_context += f"Experience: {experience[0] if experience else 'N/A'}. "
         if education:
             resume_context += f"Education: {education[0] if education else 'N/A'}."
+
+    previous_question = prev_q[-1] if len(prev_q) > 0 else "Tell me about yourself"
 
     if flag == 0:
         prompt = f"""
@@ -810,8 +957,6 @@ Rules:
 - Use the resume context to personalize the question.
 """
     else:
-        previous_question = prev_q[-1] if len(prev_q) > 0 else "Tell me about yourself"
-
         prompt = f"""
 You are a strict technical interviewer.
 
@@ -835,7 +980,7 @@ Rules:
 - Use the resume context to personalize the question.
 """
 
-    flag += 1
+    interview_state['flag'] = flag + 1
 
     # Stream the response
     full_response = ""
@@ -847,12 +992,13 @@ Rules:
         fallback = "AI service unavailable. Please verify the Gemini API key in the project .env file."
         yield fallback
         full_response = fallback
-    
+
     full_response = str(full_response).strip()
     if len(full_response) > 200:
         full_response = full_response[:200]
-    
+
     prev_q.append(full_response)
+    interview_state['prev_q'] = prev_q
 
     # Generate AI score for the answer
     score_prompt = f"""
@@ -869,14 +1015,11 @@ Where X, Y, Z are integers from 1-10 and feedback is a brief explanation.
 """
 
     try:
-        score_response = generate_score(score_prompt)
-        # Parse JSON from response
-        import re
-        json_match = re.search(r'\{.*\}', score_response, re.DOTALL)
+        score_response = _safe_gemini_call(score_prompt, fallback_parser=lambda prompt: _fallback_score_parser(prompt), timeout_seconds=15)
+        json_match = re.search(r'\{.*\}', str(score_response), re.DOTALL)
         if json_match:
             score_data = json.loads(json_match.group())
-            
-            # Save score to database
+
             if 'interview_session_id' in session:
                 db = get_db()
                 try:
@@ -899,9 +1042,8 @@ Where X, Y, Z are integers from 1-10 and feedback is a brief explanation.
     except Exception as e:
         print(f"Error generating score: {e}")
 
-    # Grammar check (legacy)
     feed = grammar_checker(text)
-    feedback.append(feed)
+    interview_state.setdefault('feedback', []).append(feed)
 
 def calculate_speaking_pace(transcription, chunk_length):
     words = transcription.split()
@@ -920,32 +1062,30 @@ def pace_checker(pace):
 
 
 def grammar_checker(text):
-    input = f"""
-    Correct “{text}” to standard English and place the results in “Correct Text:”
-"""
-    output = generate_output(input)
-    return output.split(':')[-1]
+   prompt = f"""
+   Correct “{text}” to standard English and place the results in “Correct Text:”
+   """
+   output = _safe_gemini_call(prompt, fallback_parser=lambda _: _fallback_grammar_parser(text), timeout_seconds=15)
+   if not output:
+       return _fallback_grammar_parser(text)
+   return str(output).split(':')[-1]
 
-def answer_checker(text,question):
-    # input = f""" Question : {question}
-    #             Candidate answer : {text}
-    #             Considering the answer for the question, output only 'YES' if answer is correct or else output only 'NO'.
-    #         output:
-    #  """
-    input = f"""### instruction: you are an experienced interviewer.\
-   You are interviewing a candidate for the position of {position[0]} .\
+
+def answer_checker(text, question):
+   interview_state = get_interview_state()
+   role = interview_state.get('position', 'Software Developer')
+   prompt = f"""### instruction: you are an experienced interviewer.\
+   You are interviewing a candidate for the position of {role}.\
    You are tasked to rate an answer provided by the candidate. You should provide a categorical rating and qualitative feedback.\
     The categorical rating should be one of the following values: Good, average, or  Poor.\
       the qualitative feedback should provide sufficient details to justify the categorical rating.\
         the format instructions of the output and the question asked to the candidate and the answer given by the candidate are  given below.\
-        "" I  want rating between 1 to 10 only please. 10 showing a perfect answer for the given question. Give rating only only""
+        "" I want rating between 1 to 10 only please. 10 showing a perfect answer for the given question. Give rating only only""
         ### question:{question}.\
         ### answer:{text}.\
         ### Rating:
         """
-    output = generate_output(input)
-    output = output.strip()
-    return output
-
+   output = _safe_gemini_call(prompt, fallback_parser=lambda _: f"Good - {text[:120]}", timeout_seconds=15)
+   return str(output).strip() or f"Good - {text[:120]}"
 if __name__ == '__main__':
     app.run()
