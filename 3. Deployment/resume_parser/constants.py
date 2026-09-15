@@ -1,4 +1,12 @@
-from nltk.corpus import stopwords
+try:
+    from nltk.corpus import stopwords
+    STOPWORDS = set(stopwords.words('english'))
+except LookupError:
+    STOPWORDS = {
+        'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from',
+        'has', 'he', 'in', 'is', 'it', 'its', 'of', 'on', 'or', 'that',
+        'the', 'to', 'was', 'were', 'will', 'with', 'you', 'your',
+    }
 
 # Omkar Pathak
 NAME_PATTERN = [{'POS': 'PROPN'}, {'POS': 'PROPN'}]
@@ -21,8 +29,6 @@ MONTHS_LONG = r'''(january)|(february)|(march)|(april)|(may)|(june)|(july)|
                    (august)|(september)|(october)|(november)|(december)'''
 MONTH = r'(' + MONTHS_SHORT + r'|' + MONTHS_LONG + r')'
 YEAR = r'(((20|19)(\d{2})))'
-
-STOPWORDS = set(stopwords.words('english'))
 
 RESUME_SECTIONS_PROFESSIONAL = [
                     'experience',
