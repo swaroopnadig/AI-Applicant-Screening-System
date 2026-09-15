@@ -4,6 +4,10 @@ import json
 import re
 import uuid
 import zipfile
+import secrets
+import hmac
+from urllib.parse import urlparse
+from datetime import datetime
 
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session, Response, stream_with_context
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
@@ -35,6 +39,80 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 login_manager.login_message = 'Please log in to access this page.'
+
+
+def _csrf_token():
+    token = session.get('_csrf_token')
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session['_csrf_token'] = token
+    return token
+
+
+@app.context_processor
+def inject_csrf_token():
+    return {'csrf_token': _csrf_token}
+
+
+@app.before_request
+def validate_csrf():
+    if request.path.startswith('/api/'):
+        return None
+    if request.method not in {'POST', 'PUT', 'PATCH', 'DELETE'}:
+        return None
+    supplied = request.headers.get('X-CSRFToken') or request.form.get('csrf_token')
+    expected = session.get('_csrf_token')
+    if not expected or not supplied or not hmac.compare_digest(supplied, expected):
+        return jsonify({'error': 'CSRF validation failed'}), 400
+    return None
+
+
+def _safe_redirect_target(target):
+    if not target:
+        return None
+    parsed = urlparse(target)
+    if parsed.scheme or parsed.netloc or not target.startswith('/') or target.startswith('//') or '\\' in target:
+        return None
+    return target
+
+
+def _complete_interview():
+    """Complete the current interview and persist its evaluation atomically."""
+    interview_session_id = session.get('interview_session_id')
+    candidate_id = session.get('candidate_id')
+    job_id = session.get('job_id')
+    if not interview_session_id or not candidate_id or not job_id:
+        raise ValueError("Interview session is missing candidate or job context")
+
+    db = get_db()
+    try:
+        interview_session = db.get(InterviewSession, interview_session_id)
+        if not interview_session:
+            raise ValueError("Interview session was not found")
+        if interview_session.status != "Completed":
+            interview_session.status = "Completed"
+            interview_session.completed_at = datetime.utcnow()
+        elif interview_session.completed_at is None:
+            interview_session.completed_at = datetime.utcnow()
+        application = db.query(JobApplication).filter_by(
+            candidate_id=candidate_id,
+            job_id=job_id,
+        ).first()
+        evaluation = calculate_composite_score(
+            db,
+            candidate_id,
+            job_id,
+            interview_session_id=interview_session_id,
+            application_id=application.id if application else None,
+        )
+        if application:
+            application.status = "Shortlisted" if evaluation.status == "Shortlisted" else "Interviewed"
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -85,6 +163,7 @@ def _init_session_state():
             'feedback': ['Grammatical correction here'],
             'pace': 0.0,
         }
+    session.modified = True
     return session['interview_state']
 
 
@@ -175,6 +254,153 @@ def _fallback_grammar_parser(text):
     cleaned = re.sub(r'\s+', ' ', text).strip()
     return cleaned if cleaned else 'No text provided'
 
+
+def _build_fallback_evaluation(answer, question, candidate_name='Candidate'):
+    answer_text = (answer or '').strip()
+    lower = answer_text.lower()
+    words = re.findall(r"[A-Za-z0-9]+", answer_text)
+    technical_terms = [
+        'python', 'sql', 'flask', 'django', 'java', 'javascript', 'react', 'aws',
+        'docker', 'kubernetes', 'api', 'database', 'system design', 'machine learning', 'analytics', 'testing'
+    ]
+    matches = sum(1 for term in technical_terms if term in lower)
+    word_count = max(1, len(words))
+    length_score = min(30, (word_count / 25.0) * 25)
+    keyword_score = min(35, matches * 8)
+    structure_score = 15 if len(answer_text) > 60 else 8 if len(answer_text) > 30 else 4
+    score = max(18, min(100, round(length_score + keyword_score + structure_score + 20)))
+    if score >= 80:
+        feedback = f"Strong, well-structured answer from {candidate_name}. The response shows clear reasoning and relevant technical depth."
+    elif score >= 60:
+        feedback = f"Good response from {candidate_name}. It is understandable and relevant, with room to add more detail or evidence."
+    else:
+        feedback = f"The answer needs more specificity. {candidate_name} should provide clearer examples, metrics, and concrete technical outcomes."
+
+    next_question = "Can you walk through a project where you solved a real technical problem and explain your impact?"
+    if any(term in lower for term in ['python', 'sql', 'database', 'api']):
+        next_question = "How did you optimize a backend workflow or database query in a real project?"
+    elif any(term in lower for term in ['ml', 'data', 'analytics', 'model']):
+        next_question = "Describe a data-driven decision you made and how you measured the outcome."
+    elif any(term in lower for term in ['team', 'lead', 'communication', 'collaboration']):
+        next_question = "Tell me about a time you influenced a team decision under pressure."
+
+    return {
+        'score': score,
+        'feedback': feedback,
+        'next_question': next_question,
+        'provider': 'fallback',
+        'question': question or 'Tell me about yourself',
+        'candidate_name': candidate_name,
+    }
+
+
+def _coerce_ai_json(content):
+    if not content:
+        return {}
+    cleaned = str(content).strip()
+    if cleaned.startswith('```'):
+        cleaned = re.sub(r'^```(?:json)?\s*|\s*```$', '', cleaned, flags=re.IGNORECASE)
+    match = re.search(r'\{.*\}', cleaned, flags=re.DOTALL)
+    if match:
+        cleaned = match.group(0)
+    try:
+        payload = json.loads(cleaned)
+    except Exception:
+        try:
+            payload = json.loads(cleaned.replace("'", '"'))
+        except Exception:
+            payload = {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _call_evaluation_provider(answer, question, candidate_name='Candidate'):
+    provider = None
+    prompt = (
+        "You are an interviewer scoring a candidate response. "
+        "Return valid JSON with exactly these keys: score, feedback, next_question. "
+        "Score must be an integer from 0 to 100. feedback should be brief. next_question should be a short follow-up.\n"
+        f"Candidate: {candidate_name}\n"
+        f"Question: {question}\n"
+        f"Answer: {answer}\n"
+    )
+
+    groq_api_key = os.getenv("GROQ_API_KEY")
+    if groq_api_key:
+        try:
+            from groq import Groq
+            client = Groq(api_key=groq_api_key)
+            response = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role": "system", "content": "Return only strict JSON with score, feedback, next_question."},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+                max_tokens=220,
+            )
+            first_choice = response.choices[0]
+            content = getattr(first_choice.message, "content", "") or ""
+            provider = "groq"
+            if content:
+                parsed = _coerce_ai_json(content)
+                if parsed:
+                    parsed['provider'] = provider
+                    return parsed
+        except Exception:
+            provider = None
+
+    gemini_api_key = os.getenv("GEMINI_API_KEY")
+    if gemini_api_key and provider is None:
+        try:
+            from google import generativeai as genai
+            genai.configure(api_key=gemini_api_key)
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            response = model.generate_content(prompt)
+            content = getattr(response, "text", "") or ""
+            provider = "gemini"
+            if content:
+                parsed = _coerce_ai_json(content)
+                if parsed:
+                    parsed['provider'] = provider
+                    return parsed
+        except Exception:
+            provider = None
+
+    return None
+
+
+@app.route("/api/interview/evaluate", methods=["POST"])
+def api_interview_evaluate():
+    payload = request.get_json(silent=True) or {}
+    answer = (payload.get("answer") or payload.get("transcript") or payload.get("response") or "").strip()
+    question = (payload.get("question") or payload.get("prompt") or "Tell me about yourself").strip()
+    candidate_name = (payload.get("candidate_name") or payload.get("name") or "Candidate").strip() or "Candidate"
+
+    if not answer:
+        return jsonify({"error": "answer is required"}), 400
+
+    try:
+        result = _call_evaluation_provider(answer, question, candidate_name)
+        if result is None:
+            raise ValueError("No AI provider available")
+        score = int(result.get("score", 0))
+        if not 0 <= score <= 100:
+            raise ValueError("score out of bounds")
+        feedback = str(result.get("feedback") or "Response reviewed.")
+        next_question = str(result.get("next_question") or "Can you explain a challenge you solved in a project?")
+        return jsonify({
+            "score": score,
+            "feedback": feedback,
+            "next_question": next_question,
+            "provider": result.get("provider", "ai"),
+            "question": question,
+            "candidate_name": candidate_name,
+        })
+    except Exception:
+        fallback = _build_fallback_evaluation(answer, question, candidate_name)
+        return jsonify(fallback), 200
+
+
 @app.route("/", methods=["GET", "POST"])
 def index():
     return render_template('index.html')
@@ -203,6 +429,16 @@ def register():
             new_user = User(username=username, email=email, password_hash=password_hash, role=role)
             db.add(new_user)
             db.commit()
+            db.flush()
+            if not db.query(Candidate).filter_by(user_id=new_user.id).first():
+                db.add(Candidate(
+                    user_id=new_user.id,
+                    name=username,
+                    email=email,
+                    resume_filename="",
+                    parsed_text="",
+                ))
+            db.commit()
             
             return redirect(url_for('login'))
         except Exception as e:
@@ -227,7 +463,7 @@ def login():
             user = db.query(User).filter_by(username=username).first()
             if user and check_password_hash(user.password_hash, password):
                 login_user(user)
-                next_page = request.args.get('next')
+                next_page = _safe_redirect_target(request.args.get('next'))
                 if user.role in ['admin', 'recruiter']:
                     return redirect(next_page or url_for('admin'))
                 else:
@@ -272,7 +508,7 @@ def job_details(job_id):
         has_applied = False
         if current_user.role == 'candidate':
             # Get candidate ID from username
-            candidate = db.query(Candidate).filter_by(name=current_user.username).first()
+            candidate = db.query(Candidate).filter_by(user_id=current_user.id).first()
             if candidate:
                 application = db.query(JobApplication).filter_by(job_id=job_id, candidate_id=candidate.id).first()
                 has_applied = application is not None
@@ -296,9 +532,17 @@ def apply_job(job_id):
             return redirect(url_for('jobs'))
         
         # Get candidate ID
-        candidate = db.query(Candidate).filter_by(name=current_user.username).first()
+        candidate = db.query(Candidate).filter_by(user_id=current_user.id).first()
         if not candidate:
-            return redirect(url_for('jobs'))
+            candidate = Candidate(
+                name=current_user.username,
+                user_id=current_user.id,
+                email=current_user.email,
+                resume_filename="",
+                parsed_text="",
+            )
+            db.add(candidate)
+            db.flush()
         
         # Check if already applied
         existing = db.query(JobApplication).filter_by(job_id=job_id, candidate_id=candidate.id).first()
@@ -467,12 +711,16 @@ def admin():
         applications = db.query(JobApplication).order_by(JobApplication.applied_at.desc()).all()
         candidates_data = []
         for application in applications:
-            evaluation = calculate_composite_score(db, application.id)
+            evaluation = calculate_composite_score(
+                db, application.candidate_id, application.job_id,
+                application_id=application.id,
+            )
             candidate = db.get(Candidate, application.candidate_id)
             job = db.get(Job, application.job_id)
             latest_session = (
                 db.query(InterviewSession)
                 .filter_by(candidate_id=candidate.id)
+                .filter(InterviewSession.job_id == application.job_id)
                 .order_by(InterviewSession.created_at.desc())
                 .first()
             )
@@ -492,6 +740,7 @@ def admin():
                 'created_at': application.applied_at.strftime('%Y-%m-%d %H:%M'),
             })
         candidates_data.sort(key=lambda item: item['final_weighted_score'], reverse=True)
+        db.commit()
     except Exception as e:
         print(f"Error fetching admin data: {e}")
         candidates_data = []
@@ -517,7 +766,10 @@ def export_shortlist():
         writer.writerow(['Candidate', 'Email', 'Job', 'Resume Score', 'Skills Score', 'AI Score', 'Final Score', 'Status'])
         applications = db.query(JobApplication).order_by(JobApplication.applied_at.desc()).all()
         for application in applications:
-            evaluation = calculate_composite_score(db, application.id)
+            evaluation = calculate_composite_score(
+                db, application.candidate_id, application.job_id,
+                application_id=application.id,
+            )
             job = db.get(Job, application.job_id)
             candidate = db.get(Candidate, application.candidate_id)
             if evaluation.final_weighted_score >= float(getattr(job, 'cutoff_score', 75.0) or 75.0):
@@ -527,6 +779,7 @@ def export_shortlist():
                     f'{evaluation.ai_response_score:.1f}', f'{evaluation.final_weighted_score:.1f}',
                     evaluation.status,
                 ])
+        db.commit()
         return Response(
             output.getvalue(),
             mimetype='text/csv',
@@ -596,9 +849,18 @@ def home():
         db = get_db()
         try:
             # Check if candidate already exists
-            existing_candidate = db.query(Candidate).filter_by(name=username).first()
+            existing_candidate = (
+                db.query(Candidate).filter_by(user_id=current_user.id).first()
+                if current_user.is_authenticated
+                else db.query(Candidate).filter_by(name=username).first()
+            )
             if not existing_candidate:
-                candidate = Candidate(name=username, resume_filename="", parsed_text="")
+                candidate = Candidate(
+                    user_id=current_user.id if current_user.is_authenticated else None,
+                    name=username,
+                    resume_filename="",
+                    parsed_text="",
+                )
                 db.add(candidate)
                 db.commit()
                 db.refresh(candidate)
@@ -617,6 +879,18 @@ def home():
             db.commit()
             db.refresh(interview_session)
             session['interview_session_id'] = interview_session.id
+            session['candidate_id'] = candidate_id
+            job = db.query(Job).filter_by(title=pos).order_by(Job.created_at.desc()).first()
+            if job:
+                interview_session.job_id = job.id
+                session['job_id'] = job.id
+                existing_application = db.query(JobApplication).filter_by(
+                    candidate_id=candidate_id,
+                    job_id=job.id,
+                ).first()
+                if not existing_application:
+                    db.add(JobApplication(job_id=job.id, candidate_id=candidate_id))
+                    db.commit()
         except Exception as db_error:
             db.rollback()
             print(f"Database error: {db_error}")
@@ -746,40 +1020,58 @@ def get_flag():
 
 @app.route("/get", methods=["GET", "POST"])
 def chat_():
-    msg = request.form["msg"]
+    msg = request.form.get("msg")
+    if not msg:
+        return jsonify({'error': 'Missing message'}), 400
     input = msg
     return get_Chat_response(input)
 
 @app.route("/get_stream", methods=["POST"])
 def chat_stream():
     """Streaming endpoint for real-time response"""
-    msg = request.form["msg"]
+    msg = request.form.get("msg")
+    if not msg:
+        return jsonify({'error': 'Missing message'}), 400
     return Response(stream_with_context(get_Chat_response_stream(msg)), mimetype='text/plain')
 
 @app.route('/upload', methods=['POST'])
 def upload_audio():
-    if 'audio' in request.files:
+    if 'audio' in request.files and request.files['audio'].filename:
         audio_file = request.files['audio']
-        audio_file.save('audio.wav')
+        session_id = session.get('session_id') or uuid.uuid4().hex
+        session['session_id'] = session_id
+        audio_path = os.path.join(app.config['UPLOAD_FOLDER'], f'audio_{session_id}.wav')
+        audio_file.save(audio_path)
+        session['audio_path'] = audio_path
         print("Audio saved successfully")
-        return 'Audio uploaded successfully', 200
+        return jsonify({'message': 'Audio uploaded successfully'}), 200
     else:
         print("Audio not saved")
-        return 'No audio file received', 400
+        return jsonify({'error': 'No audio file received'}), 400
 
 DEFAULT_CHUNK_LENGTH = 10
 
 @app.route('/get_text', methods=['GET'])
 def get_text():
     interview_state = get_interview_state()
-    audio_path = "./audio.wav"
-    result = model_audio.transcribe(audio_path)
+    audio_path = session.get('audio_path')
+    if not audio_path or not os.path.isfile(audio_path):
+        return jsonify({'error': 'No audio recording is available'}), 400
+    try:
+        result = model_audio.transcribe(audio_path)
+    except Exception:
+        return jsonify({'error': 'Audio transcription failed'}), 503
     segments, info = result
     print("Detected language '%s' with probability %f" % (info.language, info.language_probability))
     text = ""
     for segment in segments:
         text += segment.text
     interview_state['pace'] = calculate_speaking_pace(text, chunk_length=DEFAULT_CHUNK_LENGTH)
+    session.modified = True
+    try:
+        os.remove(audio_path)
+    except OSError:
+        pass
     return text
 
 @app.route('/get_pace', methods=['GET'])
@@ -900,6 +1192,11 @@ def get_Chat_response_stream(text):
     # Check for quit intent
     quit_keywords = ['quit', 'exit', 'stop', 'end interview', 'finish']
     if any(keyword in text.lower() for keyword in quit_keywords):
+        try:
+            _complete_interview()
+        except Exception:
+            yield "INTERVIEW_ERROR"
+            return
         yield "INTERVIEW_END"
         return
 

@@ -10,10 +10,11 @@ from sqlalchemy.orm import sessionmaker, relationship
 from flask_login import UserMixin
 from datetime import datetime
 import os
+from config import Config
 
 # Database URL - Change this to switch databases
 # SQLite (default for local development):
-DATABASE_URL = "sqlite:///interview.db"
+DATABASE_URL = Config.SQLALCHEMY_DATABASE_URI
 # MySQL: "mysql+pymysql://user:password@localhost/interview_db"
 # PostgreSQL: "postgresql://user:password@localhost/interview_db"
 
@@ -41,6 +42,8 @@ class Candidate(Base):
     __tablename__ = "candidates"
     
     id = Column(Integer, primary_key=True, index=True)
+    # Nullable preserves anonymous legacy interview sessions; registered candidates are linked.
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     name = Column(String(100))  # Candidate name
     email = Column(String(255))  # Candidate email
     resume_filename = Column(String(255))  # Resume filename
@@ -49,6 +52,7 @@ class Candidate(Base):
     
     # Relationship with interview sessions
     interview_sessions = relationship("InterviewSession", back_populates="candidate")
+    user = relationship("User", back_populates="candidate", uselist=False)
 
 
 class InterviewSession(Base):
@@ -57,6 +61,7 @@ class InterviewSession(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     candidate_id = Column(Integer, ForeignKey("candidates.id"))  # Foreign key to candidate
+    job_id = Column(Integer, ForeignKey("jobs.id"), nullable=True, index=True)
     session_id = Column(String(100), unique=True, index=True)  # Unique session identifier
     position = Column(String(100))  # Job position
     status = Column(String(20), default="Active")  # Active/Completed
@@ -96,6 +101,7 @@ class User(Base, UserMixin):
     password_hash = Column(String(255), nullable=False)
     role = Column(String(20), default="candidate")  # candidate, recruiter, admin
     created_at = Column(DateTime, default=datetime.utcnow)
+    candidate = relationship("Candidate", back_populates="user", uselist=False)
 
     @property
     def is_active(self):
@@ -185,6 +191,28 @@ def _add_missing_columns():
         for name, definition in additions.items():
             if name not in columns:
                 connection.exec_driver_sql(f"ALTER TABLE jobs ADD COLUMN {name} {definition}")
+
+    if engine.dialect.name == "sqlite":
+        with engine.connect() as connection:
+            candidate_columns = {
+                row[1] for row in connection.exec_driver_sql("PRAGMA table_info(candidates)").fetchall()
+            }
+            session_columns = {
+                row[1] for row in connection.exec_driver_sql("PRAGMA table_info(interview_sessions)").fetchall()
+            }
+        if "user_id" not in candidate_columns:
+            with engine.begin() as connection:
+                connection.exec_driver_sql("ALTER TABLE candidates ADD COLUMN user_id INTEGER")
+        if "job_id" not in session_columns:
+            with engine.begin() as connection:
+                connection.exec_driver_sql("ALTER TABLE interview_sessions ADD COLUMN job_id INTEGER")
+
+        with engine.begin() as connection:
+            connection.exec_driver_sql(
+                "UPDATE candidates SET user_id = "
+                "(SELECT users.id FROM users WHERE users.username = candidates.name) "
+                "WHERE user_id IS NULL"
+            )
 
 
 def get_db():

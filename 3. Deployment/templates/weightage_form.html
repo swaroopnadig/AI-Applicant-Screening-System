@@ -136,6 +136,7 @@
                 {% endif %}
                 
                 <form method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="form-group">
                         <label for="name">Preset Name *</label>
                         <input type="text" class="form-control" id="name" name="name" required placeholder="e.g., Software Engineer, Data Scientist" value="{% if weightage %}{{ weightage.name }}{% endif %}">

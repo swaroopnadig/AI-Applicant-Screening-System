@@ -56,13 +56,15 @@ def _skills_score(job, parsed_resume):
     return _clamp(matched / len(required) * 100)
 
 
-def _ai_score(db, candidate_id):
-    latest = (
-        db.query(InterviewSession)
-        .filter_by(candidate_id=candidate_id)
-        .order_by(InterviewSession.created_at.desc())
-        .first()
-    )
+def _ai_score(db, interview_session_id, candidate_id):
+    latest = db.get(InterviewSession, interview_session_id) if interview_session_id else None
+    if latest is None:
+        latest = (
+            db.query(InterviewSession)
+            .filter_by(candidate_id=candidate_id)
+            .order_by(InterviewSession.created_at.desc())
+            .first()
+        )
     if not latest:
         return 0.0
     scores = db.query(AIScore).filter_by(session_id=latest.id).all()
@@ -77,15 +79,22 @@ def _ai_score(db, candidate_id):
     return _clamp(sum(values) / len(values))
 
 
-def calculate_composite_score(db, application_id):
-    """Calculate, persist, and return one application's auditable score."""
+def calculate_composite_score(db, candidate_id, job_id=None, interview_session_id=None, application_id=None):
+    """Calculate and stage one application's score in the caller's transaction."""
     from database import Candidate, Job, JobApplication
 
-    application = db.get(JobApplication, application_id)
+    candidate = db.get(Candidate, candidate_id)
+    application = (
+        db.get(JobApplication, application_id) if application_id else
+        db.query(JobApplication).filter_by(candidate_id=candidate_id, job_id=job_id).first()
+    )
+    if not application and candidate and job_id:
+        application = JobApplication(job_id=job_id, candidate_id=candidate_id, status="Interviewed")
+        db.add(application)
+        db.flush()
     if not application:
         raise ValueError("Application not found")
-    candidate = db.get(Candidate, application.candidate_id)
-    job = db.get(Job, application.job_id)
+    job = db.get(Job, job_id or application.job_id)
     if not candidate or not job:
         raise ValueError("Application has incomplete candidate or job data")
 
@@ -98,7 +107,7 @@ def calculate_composite_score(db, application_id):
 
     resume_score = _resume_score(job, parsed_resume)
     skills_score = _skills_score(job, parsed_resume)
-    ai_response_score = _ai_score(db, candidate.id)
+    ai_response_score = _ai_score(db, interview_session_id, candidate.id)
     weights = _normalise_weights(job)
     final_score = _clamp(
         weights["resume"] * resume_score
@@ -120,5 +129,5 @@ def calculate_composite_score(db, application_id):
     evaluation.breakdown_json = json.dumps({"weights": weights, "scores": {
         "resume": resume_score, "skills": skills_score, "ai": ai_response_score,
     }})
-    db.commit()
+    db.flush()
     return evaluation

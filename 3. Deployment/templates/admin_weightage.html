@@ -167,11 +167,13 @@
                                 <td>
                                     {% if setting.is_default != 1 %}
                                     <form method="POST" action="/admin/weightage/{{ setting.id }}/set_default" style="display: inline;" onsubmit="return confirm('Set this as the default weightage preset?');">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <button type="submit" class="btn btn-default" title="Set as Default"><i class="fas fa-star"></i></button>
                                     </form>
                                     {% endif %}
                                     <a href="/admin/weightage/{{ setting.id }}/edit" class="btn btn-edit"><i class="fas fa-edit"></i></a>
                                     <form method="POST" action="/admin/weightage/{{ setting.id }}/delete" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this weightage preset?');">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <button type="submit" class="btn btn-delete"><i class="fas fa-trash"></i></button>
                                     </form>
                                 </td>

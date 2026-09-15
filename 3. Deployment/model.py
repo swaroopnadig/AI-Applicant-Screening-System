@@ -9,19 +9,20 @@ model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 legacy_model = None
 client = None
 
-try:
-    from google import genai as google_genai
-    client = google_genai.Client(api_key=api_key)
-except Exception:
-    client = None
-
-if client is None:
+if api_key:
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-        legacy_model = genai.GenerativeModel(model_name)
+        from google import genai as google_genai
+        client = google_genai.Client(api_key=api_key)
     except Exception:
-        legacy_model = None
+        client = None
+
+    if client is None:
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=api_key)
+            legacy_model = genai.GenerativeModel(model_name)
+        except Exception:
+            legacy_model = None
 
 
 def _fallback_text(message="AI service unavailable. Please verify the Gemini API key in the project .env file."):

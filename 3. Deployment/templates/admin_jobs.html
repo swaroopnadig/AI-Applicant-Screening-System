@@ -156,6 +156,7 @@
                                 <td>
                                     <a href="/admin/jobs/{{ job.id }}/edit" class="btn btn-edit"><i class="fas fa-edit"></i></a>
                                     <form method="POST" action="/admin/jobs/{{ job.id }}/delete" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this job?');">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <button type="submit" class="btn btn-delete"><i class="fas fa-trash"></i></button>
                                     </form>
                                 </td>

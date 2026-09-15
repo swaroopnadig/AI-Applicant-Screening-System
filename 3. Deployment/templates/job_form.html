@@ -126,6 +126,7 @@
                 {% endif %}
                 
                 <form method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="form-group">
                         <label for="title">Job Title *</label>
                         <input type="text" class="form-control" id="title" name="title" required placeholder="e.g., Senior Software Engineer" value="{% if job %}{{ job.title }}{% endif %}">

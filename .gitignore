@@ -12,6 +12,8 @@ env/
 
 # Python cache
 __pycache__/
+.pytest_cache/
+*.pytest_cache/
 *.py[cod]
 *$py.class
 *.so

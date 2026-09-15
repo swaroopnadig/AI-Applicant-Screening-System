@@ -213,6 +213,7 @@
                     <button class="btn btn-apply" disabled><i class="fas fa-check mr-2"></i>Already Applied</button>
                     {% else %}
                     <form method="POST" action="/jobs/{{ job.id }}/apply">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="btn btn-apply"><i class="fas fa-paper-plane mr-2"></i>Apply Now</button>
                     </form>
                     {% endif %}
