@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Coding Round - {{ job.title }}</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+</head>
+<body class="bg-light">
+<main class="container py-4" style="max-width: 1000px">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div><h1 class="h3 mb-1">Coding Round</h1><p class="text-muted mb-0">{{ job.title }} at {{ job.company }}</p></div>
+        <a class="btn btn-outline-secondary" href="{{ url_for('candidate_dashboard') }}">Dashboard</a>
+    </div>
+    <div class="alert alert-warning">Submissions are saved for recruiter review and are not executed by the application.</div>
+    {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+    {% for problem in problems %}
+    <section class="card mb-4">
+        <div class="card-body">
+            <h2 class="h4">{{ problem.title }} <small class="text-muted">{{ problem.maximum_marks }} marks</small></h2>
+            <p>{{ problem.statement }}</p>
+            {% if problem.input_description %}<h3 class="h6">Input</h3><p>{{ problem.input_description }}</p>{% endif %}
+            {% if problem.output_description %}<h3 class="h6">Output</h3><p>{{ problem.output_description }}</p>{% endif %}
+            {% if problem.constraints %}<h3 class="h6">Constraints</h3><p>{{ problem.constraints }}</p>{% endif %}
+            {% if problem.sample_input or problem.sample_output %}
+            <div class="row">
+                <div class="col-md-6"><h3 class="h6">Sample input</h3><pre class="bg-light p-2">{{ problem.sample_input }}</pre></div>
+                <div class="col-md-6"><h3 class="h6">Sample output</h3><pre class="bg-light p-2">{{ problem.sample_output }}</pre></div>
+            </div>
+            {% endif %}
+            <form method="post">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="problem_id" value="{{ problem.id }}">
+                <div class="form-row">
+                    <div class="form-group col-md-3">
+                        <label for="language-{{ problem.id }}">Language</label>
+                        <select class="form-control" id="language-{{ problem.id }}" name="language">
+                            <option>Python</option><option>Java</option>
+                        </select>
+                    </div>
+                    <div class="form-group col-md-9">
+                        <label for="source-{{ problem.id }}">Solution code</label>
+                        <textarea class="form-control font-monospace" id="source-{{ problem.id }}" name="source_code" rows="12" maxlength="65536" required></textarea>
+                    </div>
+                </div>
+                <button class="btn btn-primary" type="submit">Submit code for review</button>
+            </form>
+        </div>
+    </section>
+    {% else %}
+    <div class="card card-body text-muted">No coding problems are available for this job.</div>
+    {% endfor %}
+    {% if submissions %}
+    <h2 class="h4">Your submissions</h2>
+    <ul class="list-group">
+        {% for submission in submissions %}
+        <li class="list-group-item d-flex justify-content-between">
+            <span>{{ submission.language }} · {{ submission.submitted_at.strftime('%Y-%m-%d %H:%M') }}</span>
+            <span>{{ submission.execution_status }}{% if submission.score is not none %} · {{ submission.score }} points{% endif %}</span>
+        </li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+</main>
+</body>
+</html>

@@ -113,6 +113,7 @@
     </style>
 </head>
 <body>
+    {% set values = form_values|default({}) %}
     <div class="form-container">
         <div class="form-card">
             <div class="form-header">
@@ -126,29 +127,30 @@
                 {% endif %}
                 
                 <form method="POST">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                     <div class="form-group">
                         <label for="title">Job Title *</label>
-                        <input type="text" class="form-control" id="title" name="title" required placeholder="e.g., Senior Software Engineer" value="{% if job %}{{ job.title }}{% endif %}">
+                        <input type="text" class="form-control" id="title" name="title" required placeholder="e.g., Senior Software Engineer" value="{{ values.get('title', job.title if job else '') }}">
                     </div>
                     
                     <div class="form-group">
                         <label for="company">Company *</label>
-                        <input type="text" class="form-control" id="company" name="company" required placeholder="e.g., Tech Corp" value="{% if job %}{{ job.company }}{% endif %}">
+                        <input type="text" class="form-control" id="company" name="company" required placeholder="e.g., Tech Corp" value="{{ values.get('company', job.company if job else '') }}">
                     </div>
                     
                     <div class="form-group">
                         <label for="location">Location</label>
-                        <input type="text" class="form-control" id="location" name="location" placeholder="e.g., New York, NY or Remote" value="{% if job %}{{ job.location }}{% endif %}">
+                        <input type="text" class="form-control" id="location" name="location" placeholder="e.g., New York, NY or Remote" value="{{ values.get('location', job.location if job else '') }}">
                     </div>
                     
                     <div class="form-group">
                         <label for="description">Job Description</label>
-                        <textarea class="form-control" id="description" name="description" rows="5" placeholder="Describe the role, responsibilities, and requirements...">{% if job %}{{ job.description }}{% endif %}</textarea>
+                        <textarea class="form-control" id="description" name="description" rows="5" placeholder="Describe the role, responsibilities, and requirements...">{{ values.get('description', job.description if job else '') }}</textarea>
                     </div>
                     
                     <div class="form-group">
                         <label for="required_skills">Required Skills</label>
-                        <input type="text" class="form-control" id="required_skills" name="required_skills" placeholder="e.g., Python, JavaScript, SQL, Machine Learning (comma-separated)" value="{% if job %}{{ job.required_skills_list|join(', ') }}{% endif %}">
+                        <input type="text" class="form-control" id="required_skills" name="required_skills" placeholder="e.g., Python, JavaScript, SQL, Machine Learning (comma-separated)" value="{{ values.get('required_skills', job.required_skills_list|join(', ') if job else '') }}">
                         <small class="help-text">Enter skills separated by commas</small>
                     </div>
                     
@@ -156,7 +158,7 @@
                         <div class="col-md-6">
                             <div class="form-group">
                                 <label for="minimum_experience">Minimum Experience (years)</label>
-                                <input type="number" class="form-control" id="minimum_experience" name="minimum_experience" min="0" value="{% if job %}{{ job.minimum_experience }}{% else %}0{% endif %}">
+                                <input type="number" class="form-control" id="minimum_experience" name="minimum_experience" min="0" value="{{ values.get('minimum_experience', job.minimum_experience if job else 0) }}">
                             </div>
                         </div>
                         <div class="col-md-6">
@@ -164,11 +166,52 @@
                                 <label for="minimum_education">Minimum Education</label>
                                 <select class="form-control" id="minimum_education" name="minimum_education">
                                     <option value="">Not specified</option>
-                                    <option value="High School" {% if job and job.minimum_education == 'High School' %}selected{% endif %}>High School</option>
-                                    <option value="Bachelor's Degree" {% if job and job.minimum_education == "Bachelor's Degree" %}selected{% endif %}>Bachelor's Degree</option>
-                                    <option value="Master's Degree" {% if job and job.minimum_education == "Master's Degree" %}selected{% endif %}>Master's Degree</option>
-                                    <option value="PhD" {% if job and job.minimum_education == 'PhD' %}selected{% endif %}>PhD</option>
+                                    <option value="High School" {% if values.get('minimum_education', job.minimum_education if job else '') == 'High School' %}selected{% endif %}>High School</option>
+                                    <option value="Bachelor's Degree" {% if values.get('minimum_education', job.minimum_education if job else '') == "Bachelor's Degree" %}selected{% endif %}>Bachelor's Degree</option>
+                                    <option value="Master's Degree" {% if values.get('minimum_education', job.minimum_education if job else '') == "Master's Degree" %}selected{% endif %}>Master's Degree</option>
+                                    <option value="PhD" {% if values.get('minimum_education', job.minimum_education if job else '') == 'PhD' %}selected{% endif %}>PhD</option>
                                 </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="minimum_cgpa">Minimum CGPA / percentage</label>
+                        <input type="number" class="form-control" id="minimum_cgpa" name="minimum_cgpa" min="0" max="100" step="0.01" value="{{ values.get('minimum_cgpa', job.minimum_cgpa if job and job.minimum_cgpa is not none else '') }}">
+                        <small class="help-text">Leave blank to skip this criterion. Enter the minimum on the same scale shown on the resume (for example, 8.0 CGPA or 80%).</small>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="eligibility_enabled" name="eligibility_enabled" {% if values.get('eligibility_enabled') == 'on' or (not values and job and job.eligibility_enabled) %}checked{% endif %}>
+                        <label class="form-check-label" for="eligibility_enabled">Automatically filter applicants who do not meet the listed eligibility criteria</label>
+                    </div>
+
+                    <div class="weightage-section">
+                        <h5><i class="fas fa-route mr-2"></i>Recruitment Rounds</h5>
+                        <p class="help-text mb-3">Enabled round weights must total 100%. Disabled rounds must have 0% weight.</p>
+                        {% set round_labels = {'resume_screening': 'Resume Screening', 'aptitude': 'Aptitude Assessment', 'technical': 'Technical MCQ', 'coding': 'Coding Round', 'ai_interview': 'AI Interview'} %}
+                        {% for round_name, round_label in round_labels.items() %}
+                        {% set round_config = rounds[round_name] %}
+                        <div class="row align-items-center mb-2">
+                            <div class="col-md-6">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="round_{{ round_name }}" name="round_{{ round_name }}" {% if values.get('round_' ~ round_name) == 'on' or (not values and round_config.enabled) %}checked{% endif %}>
+                                    <label class="form-check-label" for="round_{{ round_name }}">{{ round_label }}</label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="sr-only" for="weight_{{ round_name }}">{{ round_label }} weight</label>
+                                <input type="number" class="form-control" id="weight_{{ round_name }}" name="weight_{{ round_name }}" min="0" max="100" step="1" value="{{ values.get('weight_' ~ round_name, round_config.weight|int) }}">
+                            </div>
+                        </div>
+                        {% endfor %}
+                        <div class="row mt-3">
+                            <div class="col-md-6">
+                                <label for="aptitude_time_limit">Aptitude time limit (minutes)</label>
+                                <input type="number" class="form-control" id="aptitude_time_limit" name="aptitude_time_limit" min="1" max="240" value="{{ values.get('aptitude_time_limit', job.aptitude_time_limit if job else 30) }}">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="technical_time_limit">Technical time limit (minutes)</label>
+                                <input type="number" class="form-control" id="technical_time_limit" name="technical_time_limit" min="1" max="240" value="{{ values.get('technical_time_limit', job.technical_time_limit if job else 30) }}">
                             </div>
                         </div>
                     </div>
@@ -179,15 +222,15 @@
                         <div class="weightage-inputs">
                             <div class="weightage-input">
                                 <label for="weight_skills">Skills (%)</label>
-                                <input type="number" class="form-control" id="weight_skills" name="weight_skills" min="0" max="100" value="{% if job %}{{ job.weight_skills }}{% else %}40{% endif %}">
+                                <input type="number" class="form-control" id="weight_skills" name="weight_skills" min="0" max="100" value="{{ values.get('weight_skills', job.weight_skills if job else 40) }}">
                             </div>
                             <div class="weightage-input">
                                 <label for="weight_experience">Experience (%)</label>
-                                <input type="number" class="form-control" id="weight_experience" name="weight_experience" min="0" max="100" value="{% if job %}{{ job.weight_experience }}{% else %}30{% endif %}">
+                                <input type="number" class="form-control" id="weight_experience" name="weight_experience" min="0" max="100" value="{{ values.get('weight_experience', job.weight_experience if job else 30) }}">
                             </div>
                             <div class="weightage-input">
                                 <label for="weight_education">Education (%)</label>
-                                <input type="number" class="form-control" id="weight_education" name="weight_education" min="0" max="100" value="{% if job %}{{ job.weight_education }}{% else %}30{% endif %}">
+                                <input type="number" class="form-control" id="weight_education" name="weight_education" min="0" max="100" value="{{ values.get('weight_education', job.weight_education if job else 30) }}">
                             </div>
                         </div>
                     </div>

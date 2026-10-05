@@ -8,6 +8,7 @@ Supports PDF, DOCX, and TXT file formats with comprehensive validation.
 import os
 import io
 import logging
+import re
 from typing import Dict, Optional, Union
 from pathlib import Path
 
@@ -119,6 +120,11 @@ class ResumeParserService:
             'skills': None,
             'college_name': None,
             'degree': None,
+            'education': [],
+            'cgpa': None,
+            'percentage': None,
+            'projects': [],
+            'certifications': [],
             'designation': None,
             'experience': None,
             'company_names': None,
@@ -162,11 +168,21 @@ class ResumeParserService:
             logger.warning(f"Entity sections extraction failed: {str(e)}")
             entities = {}
         
-        # Extract college name
-        try:
-            details['college_name'] = entities.get('College Name')
-        except Exception:
-            pass
+        education_entries = entities.get('education', [])
+        if isinstance(education_entries, str):
+            education_entries = [education_entries]
+        details['education'] = education_entries
+        details['degree'] = self._extract_degree(text)
+        details['college_name'] = self._extract_institutions(education_entries)
+        details['cgpa'] = self._extract_numeric_credential(
+            text, r'\b(?:cgpa|gpa)\s*[:=]?\s*(\d+(?:\.\d+)?)'
+        )
+        details['percentage'] = self._extract_numeric_credential(
+            text, r'\b(?:percentage|percent|marks)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%?'
+        )
+        for section_name in ('projects', 'certifications'):
+            entries = entities.get(section_name, [])
+            details[section_name] = [entries] if isinstance(entries, str) else entries
         
         # Extract experience
         try:
@@ -187,6 +203,31 @@ class ResumeParserService:
             logger.warning(f"Page count extraction failed: {str(e)}")
         
         return details
+
+    @staticmethod
+    def _extract_numeric_credential(text: str, pattern: str):
+        match = re.search(pattern, text, re.IGNORECASE)
+        return float(match.group(1)) if match else None
+
+    @staticmethod
+    def _extract_degree(text: str):
+        degree_patterns = (
+            (r'\b(?:ph\.?\s*d\.?|doctorate)\b', 'PhD'),
+            (r'\b(?:master(?:\'s)?|m\.?\s*(?:tech|e|sc|a)|mba)\b', "Master's Degree"),
+            (r'\b(?:bachelor(?:\'s)?|b\.?\s*(?:tech|e|sc|a)|bca|bba)\b', "Bachelor's Degree"),
+            (r'\b(?:high school|secondary school)\b', 'High School'),
+        )
+        for pattern, degree in degree_patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                return degree
+        return None
+
+    @staticmethod
+    def _extract_institutions(education_entries):
+        return [
+            entry for entry in education_entries
+            if any(term in entry.lower() for term in ('university', 'college', 'institute'))
+        ]
     
     def _extract_skills_basic(self, text: str) -> list:
         """

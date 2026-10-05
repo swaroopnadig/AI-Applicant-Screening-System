@@ -176,7 +176,7 @@
             
             <div class="stats-container">
                 <div class="row">
-                    <div class="col-md-6">
+                    <div class="col-xl-2 col-md-4 col-6 mb-3">
                         <div class="stat-card">
                             <div class="icon text-primary">
                                 <i class="fas fa-briefcase"></i>
@@ -185,7 +185,7 @@
                             <div class="label">Total Jobs Posted</div>
                         </div>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-xl-2 col-md-4 col-6 mb-3">
                         <div class="stat-card">
                             <div class="icon text-success">
                                 <i class="fas fa-users"></i>
@@ -193,6 +193,30 @@
                             <div class="number">{{ dashboard.total_candidates }}</div>
                             <div class="label">Candidates Evaluated</div>
                         </div>
+                    </div>
+                    <div class="col-xl-2 col-md-4 col-6 mb-3">
+                        <div class="stat-card"><div class="icon text-info"><i class="fas fa-file-alt"></i></div>
+                            <div class="number">{{ dashboard.total_applicants }}</div><div class="label">Applicants</div></div>
+                    </div>
+                    <div class="col-xl-2 col-md-4 col-6 mb-3">
+                        <div class="stat-card"><div class="icon text-success"><i class="fas fa-check-circle"></i></div>
+                            <div class="number">{{ dashboard.eligible_applicants }}</div><div class="label">Eligible</div></div>
+                    </div>
+                    <div class="col-xl-2 col-md-4 col-6 mb-3">
+                        <div class="stat-card"><div class="icon text-warning"><i class="fas fa-tasks"></i></div>
+                            <div class="number">{{ dashboard.assessment_participants }}</div><div class="label">Assessment participants</div></div>
+                    </div>
+                    <div class="col-xl-2 col-md-4 col-6 mb-3">
+                        <div class="stat-card"><div class="icon text-info"><i class="fas fa-user-check"></i></div>
+                            <div class="number">{{ dashboard.shortlisted_applicants }}</div><div class="label">Shortlisted</div></div>
+                    </div>
+                    <div class="col-xl-2 col-md-4 col-6 mb-3">
+                        <div class="stat-card"><div class="icon text-danger"><i class="fas fa-star"></i></div>
+                            <div class="number">{{ dashboard.selected_applicants }}</div><div class="label">Selected</div></div>
+                    </div>
+                    <div class="col-xl-2 col-md-4 col-6 mb-3">
+                        <div class="stat-card"><div class="icon text-primary"><i class="fas fa-chart-line"></i></div>
+                            <div class="number">{{ dashboard.average_final_score }}</div><div class="label">Average final score</div></div>
                     </div>
                 </div>
             </div>
@@ -259,6 +283,10 @@
     </div>
     
     <script>
+        function exportPDF() {
+            window.print();
+        }
+
         // Score Distribution Chart
         const scoreCtx = document.getElementById('scoreDistributionChart').getContext('2d');
         const scoreDistributionChart = new Chart(scoreCtx, {

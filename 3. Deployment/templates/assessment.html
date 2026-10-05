@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ round_type|title }} Assessment - {{ job.title }}</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        body { background: #f3f5fb; }
+        .question-card { border: 0; border-radius: 12px; }
+        #countdown { font-variant-numeric: tabular-nums; }
+    </style>
+</head>
+<body>
+<main class="container py-4" style="max-width: 900px">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="h3 mb-1">{{ round_type|title }} Assessment</h1>
+            <p class="text-muted mb-0">{{ job.title }} at {{ job.company }}</p>
+        </div>
+        {% if not attempt %}
+        <div class="badge badge-danger p-2">Time left: <span id="countdown">{{ time_limit }}:00</span></div>
+        {% endif %}
+    </div>
+    {% if error %}<div class="alert alert-warning">{{ error }}</div>{% endif %}
+
+    {% if attempt %}
+        <section class="card question-card">
+            <div class="card-body">
+                <h2 class="h4">Assessment submitted</h2>
+                <p class="mb-1">Score: <strong>{{ '%.2f'|format(attempt.score) }}/100</strong></p>
+                <p class="mb-1">Questions attempted: {{ attempt.attempted }} of {{ attempt.total_questions }}</p>
+                <p class="mb-1">Correct: {{ attempt.correct }} · Incorrect: {{ attempt.incorrect }}</p>
+                <p class="mb-1">Marks: {{ '%.2f'|format(attempt.marks_earned) }} / {{ '%.2f'|format(attempt.maximum_marks) }}</p>
+                <p class="mb-1">Accuracy: {{ '%.2f'|format(attempt.accuracy) }}%</p>
+                <p class="mb-0">Time used: {{ (attempt.time_taken_seconds // 60) }} min {{ (attempt.time_taken_seconds % 60) }} sec</p>
+                <p class="small text-muted mt-3 mb-0">Correct answers are not shown here.</p>
+                <a class="btn btn-primary mt-3" href="{{ url_for('candidate_dashboard') }}">Return to dashboard</a>
+            </div>
+        </section>
+    {% else %}
+        <form id="assessment-form" method="post">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+            {% for question in questions %}
+            <section class="card question-card mb-3">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <h2 class="h5">{{ loop.index }}. {{ question.question }}</h2>
+                        <span class="text-muted">{{ question.marks }} mark(s)</span>
+                    </div>
+                    <p class="small text-muted">{{ question.category }}</p>
+                    {% for option in question.options_list %}
+                    <div class="custom-control custom-radio mb-2">
+                        <input class="custom-control-input" type="radio"
+                               name="answer_{{ question.id }}" id="q{{ question.id }}_{{ loop.index0 }}"
+                               value="{{ option }}">
+                        <label class="custom-control-label" for="q{{ question.id }}_{{ loop.index0 }}">{{ option }}</label>
+                    </div>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endfor %}
+            <button class="btn btn-primary btn-lg" type="submit"
+                    onclick="return confirm('Submit this assessment? You cannot change answers after submission.');">
+                Submit assessment
+            </button>
+        </form>
+    {% endif %}
+</main>
+{% if not attempt %}
+<script>
+    (function () {
+        var remaining = {{ remaining_seconds }};
+        var display = document.getElementById('countdown');
+        var form = document.getElementById('assessment-form');
+        function tick() {
+            var minutes = Math.floor(remaining / 60);
+            var seconds = remaining % 60;
+            display.textContent = minutes + ':' + String(seconds).padStart(2, '0');
+            if (remaining <= 0) {
+                form.submit();
+                return;
+            }
+            remaining -= 1;
+            window.setTimeout(tick, 1000);
+        }
+        tick();
+    }());
+</script>
+{% endif %}
+</body>
+</html>

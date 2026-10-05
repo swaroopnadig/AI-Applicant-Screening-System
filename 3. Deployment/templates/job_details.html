@@ -191,7 +191,7 @@
                 </div>
                 
                 <div class="job-weightage">
-                    <h4><i class="fas fa-balance-scale mr-2"></i>Scoring Weightage</h4>
+                    <h4><i class="fas fa-balance-scale mr-2"></i>Profile Scoring Weightage</h4>
                     <div class="weightage-item">
                         <span>Skills</span>
                         <span>{{ job.weight_skills }}%</span>
@@ -205,6 +205,21 @@
                         <span>{{ job.weight_education }}%</span>
                     </div>
                 </div>
+
+                <div class="job-weightage">
+                    <h4><i class="fas fa-route mr-2"></i>Recruitment Process</h4>
+                    {% for round_name, round_config in job.rounds.items() %}
+                    {% if round_config.enabled %}
+                    <div class="weightage-item">
+                        <span>{{ round_name.replace('_', ' ')|title }}</span>
+                        <span>{{ round_config.weight|int }}%</span>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                    {% if job.eligibility_enabled %}
+                    <p class="small text-muted mb-0 mt-2">Applications are screened against the listed eligibility criteria.</p>
+                    {% endif %}
+                </div>
                 
                 <div class="d-flex justify-content-between align-items-center">
                     <a href="/jobs" class="btn btn-back"><i class="fas fa-arrow-left mr-2"></i>Back to Jobs</a>
@@ -213,6 +228,7 @@
                     <button class="btn btn-apply" disabled><i class="fas fa-check mr-2"></i>Already Applied</button>
                     {% else %}
                     <form method="POST" action="/jobs/{{ job.id }}/apply">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                         <button type="submit" class="btn btn-apply"><i class="fas fa-paper-plane mr-2"></i>Apply Now</button>
                     </form>
                     {% endif %}

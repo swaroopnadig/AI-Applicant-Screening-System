@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Coding Round - {{ job.title }}</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>pre { max-height: 320px; overflow: auto; }</style>
+</head>
+<body class="bg-light">
+<main class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div><h1 class="h3 mb-1">{{ job.title }} coding round</h1><p class="text-muted mb-0">Submissions are stored for manual review; candidate code is not executed on this server.</p></div>
+        <a class="btn btn-outline-secondary" href="{{ url_for('admin_jobs') }}">Back to jobs</a>
+    </div>
+    {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+    <section class="card mb-4">
+        <div class="card-header">Create coding problem</div>
+        <div class="card-body">
+            <form method="post">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                <div class="form-group"><label for="title">Title</label><input class="form-control" id="title" name="title" required></div>
+                <div class="form-group"><label for="statement">Problem statement</label><textarea class="form-control" id="statement" name="statement" rows="4" required></textarea></div>
+                <div class="form-row">
+                    <div class="form-group col-md-6"><label for="input_description">Input description</label><textarea class="form-control" id="input_description" name="input_description" rows="2"></textarea></div>
+                    <div class="form-group col-md-6"><label for="output_description">Output description</label><textarea class="form-control" id="output_description" name="output_description" rows="2"></textarea></div>
+                </div>
+                <div class="form-group"><label for="constraints">Constraints</label><textarea class="form-control" id="constraints" name="constraints" rows="2"></textarea></div>
+                <div class="form-row">
+                    <div class="form-group col-md-6"><label for="sample_input">Sample input</label><textarea class="form-control" id="sample_input" name="sample_input" rows="2"></textarea></div>
+                    <div class="form-group col-md-6"><label for="sample_output">Sample output</label><textarea class="form-control" id="sample_output" name="sample_output" rows="2"></textarea></div>
+                </div>
+                <div class="form-group"><label for="test_cases">Test cases (JSON array)</label><textarea class="form-control" id="test_cases" name="test_cases" rows="3">[]</textarea></div>
+                <div class="form-group"><label for="maximum_marks">Maximum marks</label><input class="form-control" id="maximum_marks" name="maximum_marks" type="number" min="1" max="1000" value="100" required></div>
+                <button class="btn btn-primary" type="submit">Save problem</button>
+            </form>
+        </div>
+    </section>
+    <h2 class="h4">Problems</h2>
+    {% for problem in problems %}
+    <article class="card mb-3"><div class="card-body">
+        <h3 class="h5">{{ problem.title }} <span class="badge badge-light">{{ problem.maximum_marks }} marks</span></h3>
+        <p>{{ problem.statement }}</p>
+        <small class="text-muted">{{ 'Enabled' if problem.enabled else 'Disabled' }}</small>
+    </div></article>
+    {% else %}<p class="text-muted">No coding problems yet.</p>{% endfor %}
+
+    <h2 class="h4 mt-4">Candidate submissions</h2>
+    {% for row in submissions %}
+    <article class="card mb-3"><div class="card-body">
+        <div class="d-flex justify-content-between flex-wrap">
+            <h3 class="h5">{{ row.candidate.name if row.candidate else 'Unknown candidate' }} — {{ row.problem.title if row.problem else 'Problem removed' }}</h3>
+            <span>{{ row.submission.language }} · {{ row.submission.submitted_at.strftime('%Y-%m-%d %H:%M') }}</span>
+        </div>
+        <p class="text-muted">{{ row.submission.execution_status }}</p>
+        <pre class="bg-dark text-light p-3 rounded"><code>{{ row.submission.source_code }}</code></pre>
+        {% if row.problem %}
+        <form class="form-inline" method="post" action="{{ url_for('score_coding_submission', submission_id=row.submission.id) }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+            <label class="mr-2" for="score-{{ row.submission.id }}">Manual score</label>
+            <input class="form-control mr-2" id="score-{{ row.submission.id }}" name="score" type="number" min="0" max="{{ row.problem.maximum_marks }}" step="0.01" value="{{ row.submission.score if row.submission.score is not none else 0 }}" required>
+            <button class="btn btn-outline-primary" type="submit">Save score</button>
+        </form>
+        {% endif %}
+    </div></article>
+    {% else %}<p class="text-muted">No submissions yet.</p>{% endfor %}
+</main>
+</body>
+</html>

@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Candidate Dashboard - AI Applicant Screening</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        body { background: #f3f5fb; color: #273247; }
+        .application-card { border: 0; border-radius: 14px; }
+        .score-pill { background: #eef1ff; color: #4c5fd5; border-radius: 20px; padding: .35rem .7rem; }
+    </style>
+</head>
+<body>
+<nav class="navbar navbar-dark bg-primary">
+    <a class="navbar-brand" href="{{ url_for('jobs') }}">AI Applicant Screening</a>
+    <div>
+        <a class="text-white mr-3" href="{{ url_for('jobs') }}">Browse jobs</a>
+        <a class="text-white" href="{{ url_for('logout') }}">Log out</a>
+    </div>
+</nav>
+<main class="container py-4">
+    <h1 class="h3">Welcome, {{ current_user.username }}</h1>
+    <p class="text-muted">Track your applications and recruitment rounds.</p>
+    {% if candidate and candidate.resume_filename %}
+    <p>Resume on file: <strong>{{ candidate.resume_filename }}</strong></p>
+    {% else %}
+    <div class="alert alert-info">No resume is on file yet. Upload one through the interview start page before applying.</div>
+    {% endif %}
+
+    {% for item in applications %}
+    {% set application = item.application %}
+    {% set job = item.job %}
+    <section class="card application-card shadow-sm mb-4">
+        <div class="card-body">
+            <div class="d-flex flex-wrap justify-content-between">
+                <div>
+                    <h2 class="h5 mb-1">{{ job.title }} <small class="text-muted">at {{ job.company }}</small></h2>
+                    <p class="text-muted">Applied {{ application.applied_at.strftime('%Y-%m-%d') }}</p>
+                </div>
+                <div>
+                    <span class="badge badge-primary align-self-start p-2">{{ application.status }}</span>
+                    <a class="btn btn-sm btn-outline-secondary ml-2" href="{{ url_for('application_report', application_id=application.id) }}">View report</a>
+                </div>
+            </div>
+            <p class="mb-2"><strong>Eligibility:</strong> {{ application.eligibility_result or 'Not evaluated' }}</p>
+            {% if application.eligibility_details %}
+            <ul class="small text-muted">
+                {% for reason in application.eligibility_reasons %}
+                <li>{{ reason }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+            <p class="mb-3">
+                <strong>Overall score:</strong>
+                {% if application.final_score is not none %}<span class="score-pill">{{ '%.2f'|format(application.final_score) }}/100</span>
+                {% else %}<span class="text-muted">Not yet available</span>{% endif %}
+            </p>
+            <div class="row">
+                {% for round_name, round_config in item.rounds.items() %}
+                <div class="col-md-6 mb-3">
+                    <div class="border rounded p-3 h-100">
+                        <div class="d-flex justify-content-between">
+                            <strong>{{ round_name.replace('_', ' ')|title }}</strong>
+                            {% if not round_config.enabled %}
+                                <span class="badge badge-secondary">Disabled</span>
+                            {% elif round_name in ('aptitude', 'technical') and item.attempts.get(round_name) %}
+                                <span class="badge badge-success">Complete</span>
+                            {% else %}
+                                <span class="badge badge-info">Available</span>
+                            {% endif %}
+                        </div>
+                        {% if round_name in ('aptitude', 'technical') and round_config.enabled %}
+                            {% set attempt = item.attempts.get(round_name) %}
+                            {% if attempt %}
+                                <p class="mb-0 mt-2">Score: {{ '%.2f'|format(attempt.score) }}/100</p>
+                            {% elif not job.eligibility_enabled or application.eligibility_result == 'Eligible' %}
+                                <a class="btn btn-sm btn-outline-primary mt-2"
+                                   href="{{ url_for('take_assessment', application_id=application.id, round_type=round_name) }}">Start assessment</a>
+                            {% else %}
+                                <p class="small text-muted mt-2 mb-0">Unavailable until eligibility requirements are met.</p>
+                            {% endif %}
+                        {% elif round_name == 'resume_screening' and round_config.enabled %}
+                            <p class="mb-0 mt-2">Score: {{ '%.2f'|format(application.resume_score or 0) }}/100</p>
+                        {% elif round_name == 'coding' and round_config.enabled %}
+                            <p class="mb-0 mt-2">Coding submissions: {{ item.coding_submissions|length }}</p>
+                            {% if not job.eligibility_enabled or application.eligibility_result == 'Eligible' %}
+                            <a class="btn btn-sm btn-outline-primary mt-2"
+                               href="{{ url_for('submit_coding_solution', application_id=application.id) }}">Open coding round</a>
+                            {% endif %}
+                        {% elif round_name == 'ai_interview' and round_config.enabled %}
+                            <p class="small text-muted mt-2 mb-0">Interview scores are recorded after the interview is completed.</p>
+                            {% if not job.eligibility_enabled or application.eligibility_result == 'Eligible' %}
+                            <a class="btn btn-sm btn-outline-primary mt-2"
+                               href="{{ url_for('start_application_interview', application_id=application.id) }}">Start AI interview</a>
+                            {% endif %}
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </section>
+    {% else %}
+        <div class="card card-body text-center text-muted">No applications yet. <a href="{{ url_for('jobs') }}">Browse open jobs</a>.</div>
+    {% endfor %}
+</main>
+</body>
+</html>

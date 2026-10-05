@@ -12,16 +12,35 @@ import json
 import uuid
 import smtplib
 import re
+import secrets
+import time
+from datetime import datetime
+from hmac import compare_digest
+from urllib.parse import urljoin, urlparse
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from resume_parser import parse_resume, FileValidationError, ResumeParsingError
-from database import init_db, get_db, Resume, Candidate, InterviewSession, AIScore, User, Job, JobApplication
-import google.generativeai as genai
+from database import (
+    init_db, get_db, Resume, Candidate, InterviewSession, AIScore, User, Job,
+    JobApplication, AssessmentQuestion, AssessmentAttempt, CodingProblem,
+    CodingSubmission,
+)
+from scoring import (
+    ROUND_NAMES, calculate_final_score, default_rounds, evaluate_eligibility,
+    parse_rounds, score_resume, validate_rounds,
+)
 
-model_audio = WhisperModel(model_size_or_path="small")
+model_audio = None
+
+
+def get_audio_model():
+    global model_audio
+    if model_audio is None:
+        model_audio = WhisperModel(model_size_or_path="small")
+    return model_audio
 
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['UPLOAD_FOLDER'] = os.getenv('UPLOAD_FOLDER', 'uploads')
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB max file size
 # Security configuration
@@ -36,6 +55,25 @@ app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD', '')
 app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'True').lower() in ['true', '1']
 app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER', 'noreply@aiinterview.com')
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+
+@app.context_processor
+def inject_csrf_token():
+    if "_csrf_token" not in session:
+        session["_csrf_token"] = secrets.token_urlsafe(32)
+    return {"csrf_token": session["_csrf_token"]}
+
+
+@app.before_request
+def protect_unsafe_requests():
+    if request.method not in ("POST", "PUT", "PATCH", "DELETE"):
+        return None
+    expected = session.get("_csrf_token")
+    provided = request.form.get("_csrf_token") or request.headers.get("X-CSRF-Token")
+    if not expected or not provided or not compare_digest(expected, provided):
+        return "The form security token is invalid or expired. Reload and retry.", 400
+    return None
+
 
 # Initialize database
 init_db()
@@ -195,6 +233,18 @@ def validate_password_strength(password):
         return False, "Password must contain at least one number"
     return True, "Password is valid"
 
+
+def is_safe_redirect_url(target):
+    if not target:
+        return False
+    host_url = urlparse(request.host_url)
+    redirect_url = urlparse(urljoin(request.host_url, target))
+    return (
+        redirect_url.scheme in ("http", "https")
+        and redirect_url.netloc == host_url.netloc
+    )
+
+
 def sanitize_input(input_string):
     """Basic input sanitization to prevent XSS"""
     if not input_string:
@@ -203,6 +253,124 @@ def sanitize_input(input_string):
     sanitized = re.sub(r'<script.*?>.*?</script>', '', input_string, flags=re.IGNORECASE | re.DOTALL)
     sanitized = re.sub(r'<[^>]+>', '', sanitized)
     return sanitized.strip()
+
+
+def parse_job_form(form):
+    """Validate job details and recruitment-round configuration from an admin form."""
+    title = (form.get("title") or "").strip()
+    company = (form.get("company") or "").strip()
+    if not title or not company:
+        raise ValueError("Title and company are required.")
+
+    try:
+        minimum_experience = int(form.get("minimum_experience") or 0)
+        legacy_weights = {
+            "weight_skills": int(form.get("weight_skills") or 0),
+            "weight_experience": int(form.get("weight_experience") or 0),
+            "weight_education": int(form.get("weight_education") or 0),
+        }
+        minimum_cgpa = form.get("minimum_cgpa", "").strip()
+        minimum_cgpa = float(minimum_cgpa) if minimum_cgpa else None
+        aptitude_time_limit = int(form.get("aptitude_time_limit") or 30)
+        technical_time_limit = int(form.get("technical_time_limit") or 30)
+    except (TypeError, ValueError):
+        raise ValueError("Experience, weight, CGPA, and time limit values must be numeric.")
+
+    if minimum_experience < 0:
+        raise ValueError("Minimum experience cannot be negative.")
+    if minimum_cgpa is not None and not 0 <= minimum_cgpa <= 100:
+        raise ValueError("Minimum CGPA/percentage must be between 0 and 100.")
+    if any(weight < 0 or weight > 100 for weight in legacy_weights.values()):
+        raise ValueError("Existing scoring weights must each be between 0 and 100.")
+    if sum(legacy_weights.values()) != 100:
+        raise ValueError("Skills, experience, and education weights must total 100%.")
+    if not 1 <= aptitude_time_limit <= 240 or not 1 <= technical_time_limit <= 240:
+        raise ValueError("Assessment time limits must be between 1 and 240 minutes.")
+
+    rounds = {}
+    for name in ROUND_NAMES:
+        try:
+            weight = int(form.get("weight_{}".format(name)) or 0)
+        except (TypeError, ValueError):
+            raise ValueError("{} weight must be a whole number.".format(ROUND_NAMES[name]))
+        enabled = form.get("round_{}".format(name)) == "on"
+        rounds[name] = {
+            "enabled": enabled,
+            "weight": weight if enabled else 0,
+        }
+    validate_rounds(rounds)
+
+    skill_list = [
+        skill.strip()
+        for skill in (form.get("required_skills") or "").split(",")
+        if skill.strip()
+    ]
+    return {
+        "title": title,
+        "company": company,
+        "location": (form.get("location") or "").strip(),
+        "description": (form.get("description") or "").strip(),
+        "required_skills": json.dumps(skill_list),
+        "minimum_experience": minimum_experience,
+        "minimum_education": form.get("minimum_education") or None,
+        "minimum_cgpa": minimum_cgpa,
+        "eligibility_enabled": form.get("eligibility_enabled") == "on",
+        "rounds_json": json.dumps(rounds),
+        "aptitude_time_limit": aptitude_time_limit,
+        "technical_time_limit": technical_time_limit,
+        **legacy_weights,
+    }
+
+
+def refresh_application_score(db, application):
+    """Recompute the final score from enabled rounds with an available score."""
+    job = db.query(Job).filter_by(id=application.job_id).first()
+    if not job:
+        return
+    rounds = parse_rounds(job.rounds_json)
+    candidate = db.query(Candidate).filter_by(id=application.candidate_id).first()
+    if candidate:
+        application.resume_score = score_resume(candidate, job)
+    scores = {
+        "resume_screening": application.resume_score,
+        "aptitude": None,
+        "technical": application.technical_score,
+        "coding": application.coding_score,
+        "ai_interview": application.interview_score,
+    }
+    attempts = db.query(AssessmentAttempt).filter_by(
+        application_id=application.id, round_type="aptitude"
+    ).first()
+    if attempts:
+        scores["aptitude"] = attempts.score
+    application.final_score = calculate_final_score(rounds, scores)
+
+
+def refresh_interview_application_scores(db, interview_session_id):
+    interview_session = db.query(InterviewSession).filter_by(
+        id=interview_session_id
+    ).first()
+    if not interview_session:
+        return
+    interview_scores = db.query(AIScore).filter_by(
+        session_id=interview_session_id
+    ).all()
+    if not interview_scores:
+        return
+    interview_score = round(
+        sum(max(0, min(10, score.weighted_score)) for score in interview_scores)
+        * 10.0 / len(interview_scores),
+        2,
+    )
+    applications = db.query(JobApplication).filter_by(
+        candidate_id=interview_session.candidate_id
+    ).all()
+    for application in applications:
+        job = db.query(Job).filter_by(id=application.job_id).first()
+        if job and job.title.strip().lower() == (interview_session.position or "").strip().lower():
+            application.interview_score = interview_score
+            refresh_application_score(db, application)
+
 
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -214,7 +382,7 @@ def register():
         username = request.form.get("username")
         email = request.form.get("email")
         password = request.form.get("password")
-        role = request.form.get("role", "candidate")
+        role = "candidate"
         
         # Sanitize inputs
         username = sanitize_input(username)
@@ -276,11 +444,13 @@ def login():
             user = db.query(User).filter_by(username=username).first()
             if user and check_password_hash(user.password_hash, password):
                 login_user(user)
+                session["_csrf_token"] = secrets.token_urlsafe(32)
                 next_page = request.args.get('next')
+                safe_next_page = next_page if is_safe_redirect_url(next_page) else None
                 if user.role in ['admin', 'recruiter']:
-                    return redirect(next_page or url_for('admin'))
+                    return redirect(safe_next_page or url_for('admin'))
                 else:
-                    return redirect(next_page or url_for('index'))
+                    return redirect(safe_next_page or url_for('candidate_dashboard'))
             else:
                 return render_template('login.html', error="Invalid username or password")
         finally:
@@ -303,6 +473,8 @@ def jobs():
     db = get_db()
     try:
         jobs = db.query(Job).order_by(Job.created_at.desc()).all()
+        for job in jobs:
+            job.required_skills_list = json.loads(job.required_skills or "[]")
         return render_template('jobs.html', jobs=jobs)
     finally:
         db.close()
@@ -327,6 +499,7 @@ def job_details(job_id):
                 has_applied = application is not None
         
         job.required_skills_list = json.loads(job.required_skills) if job.required_skills else []
+        job.rounds = parse_rounds(job.rounds_json)
         return render_template('job_details.html', job=job, has_applied=has_applied)
     finally:
         db.close()
@@ -353,14 +526,676 @@ def apply_job(job_id):
         if existing:
             return redirect(url_for('job_details', job_id=job_id))
         
-        # Create application
-        application = JobApplication(job_id=job_id, candidate_id=candidate.id)
+        eligibility = evaluate_eligibility(candidate, job)
+        application = JobApplication(
+            job_id=job_id,
+            candidate_id=candidate.id,
+            status=(
+                "Rejected" if job.eligibility_enabled and not eligibility["eligible"]
+                else "Eligible" if job.eligibility_enabled
+                else "Applied"
+            ),
+            eligibility_result=eligibility["result"],
+            eligibility_details=json.dumps(eligibility["details"]),
+            resume_score=eligibility["resume_score"],
+        )
         db.add(application)
         db.commit()
         
         return redirect(url_for('job_details', job_id=job_id))
     finally:
         db.close()
+
+
+@app.route("/candidate/dashboard")
+@login_required
+def candidate_dashboard():
+    if current_user.role != "candidate":
+        return redirect(url_for("admin"))
+    db = get_db()
+    try:
+        candidate = db.query(Candidate).filter_by(name=current_user.username).first()
+        applications = []
+        if candidate:
+            records = db.query(JobApplication).filter_by(
+                candidate_id=candidate.id
+            ).order_by(JobApplication.applied_at.desc()).all()
+            for application in records:
+                job = db.query(Job).filter_by(id=application.job_id).first()
+                if not job:
+                    continue
+                try:
+                    application.eligibility_reasons = json.loads(
+                        application.eligibility_details or "[]"
+                    )
+                except (TypeError, ValueError):
+                    application.eligibility_reasons = []
+                rounds = parse_rounds(job.rounds_json)
+                attempts = {
+                    attempt.round_type: attempt
+                    for attempt in db.query(AssessmentAttempt).filter_by(
+                        application_id=application.id
+                    ).all()
+                }
+                refresh_application_score(db, application)
+                applications.append({
+                    "application": application,
+                    "job": job,
+                    "rounds": rounds,
+                    "attempts": attempts,
+                    "coding_submissions": db.query(CodingSubmission).filter_by(
+                        application_id=application.id
+                    ).order_by(CodingSubmission.submitted_at.desc()).all(),
+                })
+            db.commit()
+        return render_template(
+            "candidate_dashboard.html", candidate=candidate,
+            applications=applications,
+        )
+    finally:
+        db.close()
+
+
+@app.route("/admin/jobs/<int:job_id>/questions/<round_type>", methods=["GET", "POST"])
+@recruiter_required
+def manage_assessment_questions(job_id, round_type):
+    if round_type not in ("aptitude", "technical"):
+        return "Unsupported assessment round.", 404
+    db = get_db()
+    try:
+        job = db.query(Job).filter_by(id=job_id).first()
+        if not job:
+            return redirect(url_for("admin_jobs"))
+        error = None
+        if request.method == "POST":
+            question_text = (request.form.get("question") or "").strip()
+            category = (request.form.get("category") or "").strip()
+            options = [
+                option.strip()
+                for option in (request.form.get("options") or "").splitlines()
+                if option.strip()
+            ]
+            try:
+                correct_option = int(request.form.get("correct_option", "-1"))
+                marks = float(request.form.get("marks") or 1)
+            except ValueError:
+                correct_option, marks = -1, 0
+            if not question_text or not category:
+                error = "Question and category are required."
+            elif len(options) < 2 or len(options) > 6:
+                error = "Provide between 2 and 6 answer options, one per line."
+            elif len({option.casefold() for option in options}) != len(options):
+                error = "Answer options must be unique."
+            elif correct_option < 0 or correct_option >= len(options):
+                error = "Choose a correct answer that matches one of the options."
+            elif marks <= 0 or marks > 100:
+                error = "Marks must be greater than 0 and no more than 100."
+            else:
+                db.add(AssessmentQuestion(
+                    job_id=job.id,
+                    round_type=round_type,
+                    category=category,
+                    question=question_text,
+                    options_json=json.dumps(options),
+                    correct_answer=options[correct_option],
+                    marks=marks,
+                    enabled=True,
+                ))
+                db.commit()
+                return redirect(url_for(
+                    "manage_assessment_questions", job_id=job.id,
+                    round_type=round_type,
+                ))
+        questions = db.query(AssessmentQuestion).filter_by(
+            job_id=job_id, round_type=round_type
+        ).order_by(AssessmentQuestion.created_at.desc()).all()
+        for question in questions:
+            question.options_list = json.loads(question.options_json)
+        return render_template(
+            "assessment_questions.html", job=job, round_type=round_type,
+            questions=questions, error=error,
+        )
+    finally:
+        db.close()
+
+
+@app.route("/admin/questions/<int:question_id>/toggle", methods=["POST"])
+@recruiter_required
+def toggle_assessment_question(question_id):
+    db = get_db()
+    try:
+        question = db.query(AssessmentQuestion).filter_by(id=question_id).first()
+        if not question:
+            return jsonify({"error": "Question not found."}), 404
+        question.enabled = not question.enabled
+        db.commit()
+        return redirect(url_for(
+            "manage_assessment_questions", job_id=question.job_id,
+            round_type=question.round_type,
+        ))
+    finally:
+        db.close()
+
+
+@app.route("/applications/<int:application_id>/assessment/<round_type>", methods=["GET", "POST"])
+@login_required
+def take_assessment(application_id, round_type):
+    if current_user.role != "candidate" or round_type not in ("aptitude", "technical"):
+        return redirect(url_for("jobs"))
+    db = get_db()
+    start_key = "assessment_start_{}_{}".format(application_id, round_type)
+    try:
+        candidate = db.query(Candidate).filter_by(name=current_user.username).first()
+        application = db.query(JobApplication).filter_by(
+            id=application_id,
+            candidate_id=candidate.id if candidate else -1,
+        ).first()
+        if not application:
+            return "Application not found.", 404
+        job = db.query(Job).filter_by(id=application.job_id).first()
+        rounds = parse_rounds(job.rounds_json)
+        if not rounds[round_type]["enabled"]:
+            return "This assessment round is not enabled.", 403
+        if job.eligibility_enabled and application.eligibility_result != "Eligible":
+            return "You did not meet the eligibility criteria for this application.", 403
+
+        attempt = db.query(AssessmentAttempt).filter_by(
+            application_id=application.id, round_type=round_type
+        ).first()
+        questions = db.query(AssessmentQuestion).filter_by(
+            job_id=job.id, round_type=round_type, enabled=True
+        ).order_by(AssessmentQuestion.id.asc()).all()
+        if not questions:
+            return "This assessment is not available yet.", 404
+        for question in questions:
+            question.options_list = json.loads(question.options_json)
+
+        time_limit = (
+            job.aptitude_time_limit if round_type == "aptitude"
+            else job.technical_time_limit
+        )
+        if not attempt and not request.method == "POST" and not session.get(start_key):
+            session[start_key] = int(time.time())
+        started_at = session.get(start_key)
+        remaining_seconds = max(
+            0, time_limit * 60 - int(time.time() - started_at)
+        ) if started_at else 0
+        error = None
+        result = None
+        if attempt:
+            result = attempt
+        elif request.method == "POST":
+            started_at = session.get(start_key)
+            if started_at is None:
+                return "Assessment session expired. Reopen the assessment to start again.", 400
+            elapsed = max(0, int(time.time() - started_at))
+            answers = {}
+            attempted = 0
+            correct = 0
+            earned_marks = 0.0
+            maximum_marks = sum(question.marks for question in questions)
+            for question in questions:
+                selected = request.form.get("answer_{}".format(question.id), "")
+                valid_options = question.options_list
+                if selected and selected in valid_options:
+                    attempted += 1
+                    answers[str(question.id)] = selected
+                    if selected == question.correct_answer:
+                        correct += 1
+                        earned_marks += question.marks
+                elif selected:
+                    answers[str(question.id)] = ""
+            score = round(earned_marks * 100.0 / maximum_marks, 2) if maximum_marks else 0.0
+            if elapsed > time_limit * 60:
+                error = "The time limit expired; your submitted answers were recorded with a score of 0."
+                score = 0.0
+                correct = 0
+                earned_marks = 0.0
+            result = AssessmentAttempt(
+                application_id=application.id,
+                round_type=round_type,
+                total_questions=len(questions),
+                attempted=attempted,
+                correct=correct,
+                incorrect=attempted - correct,
+                marks_earned=earned_marks,
+                maximum_marks=maximum_marks,
+                accuracy=round(correct * 100.0 / attempted, 2) if attempted else 0.0,
+                score=score,
+                time_taken_seconds=min(elapsed, time_limit * 60),
+                answers_json=json.dumps(answers),
+            )
+            db.add(result)
+            if round_type == "aptitude":
+                application.assessment_score = score
+            else:
+                application.technical_score = score
+            application.status = "Assessment Complete"
+            refresh_application_score(db, application)
+            db.commit()
+            session.pop(start_key, None)
+        return render_template(
+            "assessment.html", job=job, application=application,
+            round_type=round_type, questions=questions, attempt=result,
+            time_limit=time_limit, remaining_seconds=remaining_seconds, error=error,
+        )
+    finally:
+        db.close()
+
+
+@app.route("/applications/<int:application_id>/interview")
+@login_required
+def start_application_interview(application_id):
+    if current_user.role != "candidate":
+        return redirect(url_for("jobs"))
+    db = get_db()
+    try:
+        candidate = db.query(Candidate).filter_by(name=current_user.username).first()
+        application = db.query(JobApplication).filter_by(
+            id=application_id, candidate_id=candidate.id if candidate else -1
+        ).first()
+        if not application:
+            return "Application not found.", 404
+        job = db.query(Job).filter_by(id=application.job_id).first()
+        if job.eligibility_enabled and application.eligibility_result != "Eligible":
+            return "You did not meet the eligibility criteria for this application.", 403
+        if not parse_rounds(job.rounds_json)["ai_interview"]["enabled"]:
+            return "The AI interview round is not enabled for this job.", 403
+        browser_session_id = start_interview_browser_session(
+            current_user.username, job.title
+        )
+        interview_session = InterviewSession(
+            candidate_id=candidate.id,
+            session_id=browser_session_id,
+            position=job.title,
+            status="Active",
+        )
+        db.add(interview_session)
+        if candidate.parsed_text:
+            db.add(Resume(
+                session_id=browser_session_id,
+                username=candidate.name,
+                position=job.title,
+                filename=candidate.resume_filename or "",
+                extracted_json=candidate.parsed_text,
+            ))
+        db.commit()
+        db.refresh(interview_session)
+        session["interview_session_id"] = interview_session.id
+        return render_template("home.html", name=current_user.username)
+    except Exception:
+        db.rollback()
+        app.logger.exception("Failed to start candidate interview")
+        return "Unable to start the interview. Please try again.", 500
+    finally:
+        db.close()
+
+
+@app.route("/applications/<int:application_id>/report")
+@login_required
+def application_report(application_id):
+    db = get_db()
+    try:
+        application = db.query(JobApplication).filter_by(id=application_id).first()
+        if not application:
+            return "Application not found.", 404
+        candidate = db.query(Candidate).filter_by(id=application.candidate_id).first()
+        if current_user.role == "candidate" and (
+            not candidate or candidate.name != current_user.username
+        ):
+            return "Application not found.", 404
+        if current_user.role not in ("candidate", "admin", "recruiter"):
+            return "Unauthorized.", 403
+        job = db.query(Job).filter_by(id=application.job_id).first()
+        refresh_application_score(db, application)
+        ranked_applications = db.query(JobApplication).filter_by(job_id=job.id).all()
+        for ranked_application in ranked_applications:
+            refresh_application_score(db, ranked_application)
+        ranked_applications.sort(key=lambda item: (
+            item.final_score is None, -(item.final_score or 0),
+            item.applied_at, item.id,
+        ))
+        rank = None
+        last_score = None
+        current_rank = 0
+        for index, ranked_application in enumerate(ranked_applications):
+            if ranked_application.final_score is None:
+                continue
+            if ranked_application.final_score != last_score:
+                current_rank = index + 1
+                last_score = ranked_application.final_score
+            if ranked_application.id == application.id:
+                rank = current_rank
+                break
+        db.commit()
+        aptitude = db.query(AssessmentAttempt).filter_by(
+            application_id=application.id, round_type="aptitude"
+        ).first()
+        return render_template(
+            "application_report.html", application=application,
+            candidate=candidate, job=job, aptitude=aptitude, rank=rank,
+        )
+    finally:
+        db.close()
+
+
+@app.route("/admin/jobs/<int:job_id>/leaderboard")
+@recruiter_required
+def job_leaderboard(job_id):
+    db = get_db()
+    try:
+        job = db.query(Job).filter_by(id=job_id).first()
+        if not job:
+            return redirect(url_for("admin_jobs"))
+        search = request.args.get("search", "").strip().lower()
+        status_filter = request.args.get("status", "").strip()
+        page = max(1, request.args.get("page", 1, type=int))
+        records = db.query(JobApplication).filter_by(job_id=job_id).all()
+        rows = []
+        for application in records:
+            candidate = db.query(Candidate).filter_by(id=application.candidate_id).first()
+            if not candidate:
+                continue
+            refresh_application_score(db, application)
+            aptitude_attempt = db.query(AssessmentAttempt).filter_by(
+                application_id=application.id, round_type="aptitude"
+            ).first()
+            rows.append({
+                "application": application,
+                "candidate": candidate,
+                "aptitude_score": aptitude_attempt.score if aptitude_attempt else None,
+            })
+        rows.sort(key=lambda row: (
+            row["application"].final_score is None,
+            -(row["application"].final_score or 0),
+            row["application"].applied_at,
+            row["candidate"].id,
+        ))
+        previous_score = None
+        rank = 0
+        for index, row in enumerate(rows):
+            score = row["application"].final_score
+            if score is not None:
+                if score != previous_score:
+                    rank = index + 1
+                    previous_score = score
+                row["rank"] = rank
+            else:
+                row["rank"] = "-"
+        rows = [
+            row for row in rows
+            if (
+                (not search
+                 or search in (row["candidate"].name or "").lower()
+                 or search in (row["candidate"].email or "").lower())
+                and (not status_filter
+                     or row["application"].status == status_filter)
+            )
+        ]
+        db.commit()
+        per_page = 20
+        total_pages = (len(rows) + per_page - 1) // per_page
+        page = min(page, max(total_pages, 1))
+        return render_template(
+            "leaderboard.html", job=job,
+            applications=rows[(page - 1) * per_page:page * per_page],
+            search=search, status_filter=status_filter,
+            current_page=page, total_pages=total_pages,
+        )
+    finally:
+        db.close()
+
+
+@app.route("/admin/applications/<int:application_id>/status", methods=["POST"])
+@recruiter_required
+def update_application_status(application_id):
+    allowed_statuses = {
+        "Applied", "Eligible", "Rejected", "Assessment Complete",
+        "Shortlisted", "Interviewed", "Selected",
+    }
+    db = get_db()
+    try:
+        application = db.query(JobApplication).filter_by(id=application_id).first()
+        if not application:
+            return jsonify({"error": "Application not found."}), 404
+        new_status = request.form.get("status", "")
+        if new_status not in allowed_statuses:
+            return jsonify({"error": "Unsupported application status."}), 400
+        application.status = new_status
+        db.commit()
+        return redirect(url_for("job_leaderboard", job_id=application.job_id))
+    finally:
+        db.close()
+
+
+@app.route("/admin/jobs/<int:job_id>/export.csv")
+@recruiter_required
+def export_job_csv(job_id):
+    db = get_db()
+    try:
+        job = db.query(Job).filter_by(id=job_id).first()
+        if not job:
+            return "Job not found.", 404
+        rows = []
+        for application in db.query(JobApplication).filter_by(job_id=job_id).all():
+            candidate = db.query(Candidate).filter_by(id=application.candidate_id).first()
+            if candidate:
+                refresh_application_score(db, application)
+                aptitude = db.query(AssessmentAttempt).filter_by(
+                    application_id=application.id, round_type="aptitude"
+                ).first()
+                rows.append((application, candidate, aptitude.score if aptitude else None))
+        rows.sort(key=lambda row: (
+            row[0].final_score is None, -(row[0].final_score or 0),
+            row[0].applied_at, row[1].id,
+        ))
+        db.commit()
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            "Rank", "Candidate", "Email", "Eligibility", "Aptitude",
+            "Technical", "Coding", "AI Interview", "Final Score", "Status",
+        ])
+        prior_score = None
+        rank = 0
+        for index, (application, candidate, aptitude_score) in enumerate(rows):
+            if application.final_score is not None:
+                if application.final_score != prior_score:
+                    rank = index + 1
+                    prior_score = application.final_score
+                candidate_rank = rank
+            else:
+                candidate_rank = ""
+            writer.writerow([
+                candidate_rank, candidate.name, candidate.email,
+                application.eligibility_result or "",
+                aptitude_score if aptitude_score is not None else "",
+                application.technical_score if application.technical_score is not None else "",
+                application.coding_score if application.coding_score is not None else "",
+                application.interview_score if application.interview_score is not None else "",
+                application.final_score if application.final_score is not None else "",
+                application.status,
+            ])
+        response = Response(output.getvalue(), mimetype="text/csv")
+        response.headers["Content-Disposition"] = (
+            "attachment; filename=job_{}_leaderboard.csv".format(job_id)
+        )
+        return response
+    finally:
+        db.close()
+
+
+@app.route("/admin/jobs/<int:job_id>/coding", methods=["GET", "POST"])
+@recruiter_required
+def manage_coding_round(job_id):
+    db = get_db()
+    try:
+        job = db.query(Job).filter_by(id=job_id).first()
+        if not job:
+            return redirect(url_for("admin_jobs"))
+        error = None
+        if request.method == "POST":
+            title = (request.form.get("title") or "").strip()
+            statement = (request.form.get("statement") or "").strip()
+            tests_text = request.form.get("test_cases") or "[]"
+            try:
+                maximum_marks = float(request.form.get("maximum_marks") or 100)
+                test_cases = json.loads(tests_text)
+            except (TypeError, ValueError):
+                maximum_marks, test_cases = 0, None
+            if not title or not statement:
+                error = "Problem title and statement are required."
+            elif not isinstance(test_cases, list):
+                error = "Test cases must be a JSON array."
+            elif maximum_marks <= 0 or maximum_marks > 1000:
+                error = "Maximum marks must be greater than 0 and no more than 1000."
+            else:
+                db.add(CodingProblem(
+                    job_id=job.id,
+                    title=title,
+                    statement=statement,
+                    input_description=request.form.get("input_description", ""),
+                    output_description=request.form.get("output_description", ""),
+                    constraints=request.form.get("constraints", ""),
+                    sample_input=request.form.get("sample_input", ""),
+                    sample_output=request.form.get("sample_output", ""),
+                    test_cases_json=json.dumps(test_cases),
+                    maximum_marks=maximum_marks,
+                    enabled=True,
+                ))
+                db.commit()
+                return redirect(url_for("manage_coding_round", job_id=job.id))
+        problems = db.query(CodingProblem).filter_by(job_id=job_id).all()
+        submissions = (
+            db.query(CodingSubmission)
+            .join(JobApplication, CodingSubmission.application_id == JobApplication.id)
+            .filter(JobApplication.job_id == job_id)
+            .order_by(CodingSubmission.submitted_at.desc())
+            .all()
+        )
+        submission_rows = []
+        for submission in submissions:
+            application = db.query(JobApplication).filter_by(
+                id=submission.application_id
+            ).first()
+            candidate = db.query(Candidate).filter_by(
+                id=application.candidate_id
+            ).first() if application else None
+            problem = db.query(CodingProblem).filter_by(id=submission.problem_id).first()
+            submission_rows.append({
+                "submission": submission, "candidate": candidate, "problem": problem,
+            })
+        return render_template(
+            "coding_admin.html", job=job, problems=problems,
+            submissions=submission_rows, error=error,
+        )
+    finally:
+        db.close()
+
+
+@app.route("/admin/coding-submissions/<int:submission_id>/score", methods=["POST"])
+@recruiter_required
+def score_coding_submission(submission_id):
+    db = get_db()
+    try:
+        submission = db.query(CodingSubmission).filter_by(id=submission_id).first()
+        if not submission:
+            return "Submission not found.", 404
+        problem = db.query(CodingProblem).filter_by(id=submission.problem_id).first()
+        if not problem:
+            return "The submitted coding problem no longer exists.", 404
+        try:
+            score = float(request.form.get("score", ""))
+        except ValueError:
+            return "Score must be numeric.", 400
+        if score < 0 or score > problem.maximum_marks:
+            return "Score must be between 0 and the problem's maximum marks.", 400
+        submission.score = score
+        submission.execution_status = "Manually scored; sandbox not configured"
+        application = db.query(JobApplication).filter_by(
+            id=submission.application_id
+        ).first()
+        if not application:
+            return "The application for this submission no longer exists.", 404
+        submissions = db.query(CodingSubmission).filter_by(
+            application_id=application.id
+        ).all()
+        scored = [
+            (item.score, db.query(CodingProblem).filter_by(id=item.problem_id).first())
+            for item in submissions if item.score is not None
+        ]
+        if scored:
+            application.coding_score = round(
+                sum(score_value * 100.0 / item_problem.maximum_marks
+                    for score_value, item_problem in scored) / len(scored), 2
+            )
+        refresh_application_score(db, application)
+        db.commit()
+        return redirect(url_for(
+            "manage_coding_round", job_id=problem.job_id
+        ))
+    finally:
+        db.close()
+
+
+@app.route("/applications/<int:application_id>/coding", methods=["GET", "POST"])
+@login_required
+def submit_coding_solution(application_id):
+    if current_user.role != "candidate":
+        return redirect(url_for("jobs"))
+    db = get_db()
+    try:
+        candidate = db.query(Candidate).filter_by(name=current_user.username).first()
+        application = db.query(JobApplication).filter_by(
+            id=application_id, candidate_id=candidate.id if candidate else -1
+        ).first()
+        if not application:
+            return "Application not found.", 404
+        job = db.query(Job).filter_by(id=application.job_id).first()
+        rounds = parse_rounds(job.rounds_json)
+        if not rounds["coding"]["enabled"]:
+            return "The coding round is not enabled for this job.", 403
+        if job.eligibility_enabled and application.eligibility_result != "Eligible":
+            return "You did not meet the eligibility criteria for this application.", 403
+        problems = db.query(CodingProblem).filter_by(
+            job_id=job.id, enabled=True
+        ).order_by(CodingProblem.id.asc()).all()
+        error = None
+        if request.method == "POST":
+            try:
+                problem_id = int(request.form.get("problem_id", ""))
+            except ValueError:
+                problem_id = -1
+            problem = next((item for item in problems if item.id == problem_id), None)
+            language = request.form.get("language", "")
+            source_code = request.form.get("source_code", "")
+            if not problem or language not in ("Python", "Java"):
+                error = "Choose a valid problem and Python or Java."
+            elif not source_code.strip():
+                error = "Source code cannot be empty."
+            elif len(source_code.encode("utf-8")) > 65536:
+                error = "Source code must be no larger than 64 KB."
+            else:
+                db.add(CodingSubmission(
+                    application_id=application.id,
+                    problem_id=problem.id,
+                    language=language,
+                    source_code=source_code,
+                    execution_status="Pending sandbox evaluation",
+                ))
+                application.status = "Coding Submitted"
+                db.commit()
+                return redirect(url_for("candidate_dashboard"))
+        submissions = db.query(CodingSubmission).filter_by(
+            application_id=application.id
+        ).order_by(CodingSubmission.submitted_at.desc()).all()
+        return render_template(
+            "coding_candidate.html", job=job, problems=problems,
+            submissions=submissions, error=error,
+        )
+    finally:
+        db.close()
+
 
 @app.route("/admin/jobs")
 @recruiter_required
@@ -378,54 +1213,30 @@ def admin_jobs():
 def create_job():
     """Create a new job"""
     if request.method == "POST":
-        title = request.form.get("title")
-        company = request.form.get("company")
-        location = request.form.get("location")
-        description = request.form.get("description")
-        required_skills = request.form.get("required_skills")
-        minimum_experience = request.form.get("minimum_experience", 0)
-        minimum_education = request.form.get("minimum_education")
-        weight_skills = request.form.get("weight_skills", 40)
-        weight_experience = request.form.get("weight_experience", 30)
-        weight_education = request.form.get("weight_education", 30)
-        
-        if not title or not company:
-            return render_template('job_form.html', error="Title and company are required")
-        
-        # Validate weightage sums to 100
-        total_weight = int(weight_skills) + int(weight_experience) + int(weight_education)
-        if total_weight != 100:
-            return render_template('job_form.html', error=f"Total weightage must be 100 (current: {total_weight})")
-        
+        try:
+            job_values = parse_job_form(request.form)
+        except ValueError as error:
+            return render_template(
+                'job_form.html', error=str(error), rounds=default_rounds(),
+                form_values=request.form,
+            )
         db = get_db()
         try:
-            # Convert skills to JSON array
-            skills_array = [skill.strip() for skill in required_skills.split(',')] if required_skills else []
-            
-            new_job = Job(
-                title=title,
-                company=company,
-                location=location,
-                description=description,
-                required_skills=json.dumps(skills_array),
-                minimum_experience=int(minimum_experience),
-                minimum_education=minimum_education,
-                weight_skills=int(weight_skills),
-                weight_experience=int(weight_experience),
-                weight_education=int(weight_education),
-                created_by=current_user.id
-            )
+            new_job = Job(**job_values, created_by=current_user.id)
             db.add(new_job)
             db.commit()
-            
             return redirect(url_for('admin_jobs'))
-        except Exception as e:
+        except Exception:
             db.rollback()
-            return render_template('job_form.html', error=f"Failed to create job: {str(e)}")
+            app.logger.exception("Failed to create job")
+            return render_template(
+                'job_form.html', error="Failed to create job. Please try again.",
+                rounds=default_rounds(), form_values=request.form,
+            )
         finally:
             db.close()
     
-    return render_template('job_form.html')
+    return render_template('job_form.html', rounds=default_rounds())
 
 @app.route("/admin/jobs/<int:job_id>/edit", methods=["GET", "POST"])
 @recruiter_required
@@ -438,31 +1249,25 @@ def edit_job(job_id):
             return redirect(url_for('admin_jobs'))
         
         if request.method == "POST":
-            job.title = request.form.get("title")
-            job.company = request.form.get("company")
-            job.location = request.form.get("location")
-            job.description = request.form.get("description")
-            required_skills = request.form.get("required_skills")
-            job.minimum_experience = int(request.form.get("minimum_experience", 0))
-            job.minimum_education = request.form.get("minimum_education")
-            job.weight_skills = int(request.form.get("weight_skills", 40))
-            job.weight_experience = int(request.form.get("weight_experience", 30))
-            job.weight_education = int(request.form.get("weight_education", 30))
-            
-            # Validate weightage
-            total_weight = job.weight_skills + job.weight_experience + job.weight_education
-            if total_weight != 100:
-                return render_template('job_form.html', job=job, error=f"Total weightage must be 100 (current: {total_weight})")
-            
-            # Convert skills to JSON array
-            skills_array = [skill.strip() for skill in required_skills.split(',')] if required_skills else []
-            job.required_skills = json.dumps(skills_array)
-            
+            try:
+                job_values = parse_job_form(request.form)
+            except ValueError as error:
+                return render_template(
+                    'job_form.html', job=job, rounds=default_rounds(),
+                    error=str(error), form_values=request.form,
+                )
+            for field, value in job_values.items():
+                setattr(job, field, value)
             db.commit()
             return redirect(url_for('admin_jobs'))
         
         job.required_skills_list = json.loads(job.required_skills) if job.required_skills else []
-        return render_template('job_form.html', job=job)
+        try:
+            rounds = parse_rounds(job.rounds_json)
+        except (TypeError, ValueError):
+            app.logger.warning("Invalid saved round configuration for job %s", job.id)
+            rounds = default_rounds()
+        return render_template('job_form.html', job=job, rounds=rounds)
     finally:
         db.close()
 
@@ -491,6 +1296,30 @@ def dashboard():
         
         # Get total candidates evaluated (with interview sessions)
         total_candidates = db.query(InterviewSession).distinct(InterviewSession.candidate_id).count()
+        applications = db.query(JobApplication).all()
+        for application in applications:
+            refresh_application_score(db, application)
+        db.commit()
+        total_applicants = len(applications)
+        eligible_applicants = sum(
+            1 for application in applications
+            if application.eligibility_result == "Eligible"
+        )
+        assessment_participants = db.query(AssessmentAttempt.application_id).distinct().count()
+        shortlisted_applicants = sum(
+            1 for application in applications
+            if application.status == "Shortlisted"
+        )
+        selected_applicants = sum(
+            1 for application in applications if application.status == "Selected"
+        )
+        final_scores = [
+            application.final_score for application in applications
+            if application.final_score is not None
+        ]
+        average_final_score = (
+            round(sum(final_scores) / len(final_scores), 2) if final_scores else 0
+        )
         
         # Get top-ranked candidates (with weighted scores)
         candidates = db.query(Candidate).all()
@@ -543,6 +1372,12 @@ def dashboard():
         dashboard_data = {
             'total_jobs': total_jobs,
             'total_candidates': total_candidates,
+            'total_applicants': total_applicants,
+            'eligible_applicants': eligible_applicants,
+            'assessment_participants': assessment_participants,
+            'shortlisted_applicants': shortlisted_applicants,
+            'selected_applicants': selected_applicants,
+            'average_final_score': average_final_score,
             'top_candidates': top_candidates,
             'score_distribution': score_ranges,
             'status_labels': list(status_counts.keys()),
@@ -552,7 +1387,15 @@ def dashboard():
         return render_template('dashboard.html', dashboard=dashboard_data)
     except Exception as e:
         print(f"Error fetching dashboard data: {e}")
-        return render_template('dashboard.html', dashboard={'total_jobs': 0, 'total_candidates': 0, 'top_candidates': [], 'score_distribution': [0, 0, 0, 0, 0], 'status_labels': ['Active', 'Completed', 'Inactive'], 'status_counts': [0, 0, 0]})
+        return render_template('dashboard.html', dashboard={
+            'total_jobs': 0, 'total_candidates': 0, 'total_applicants': 0,
+            'eligible_applicants': 0, 'assessment_participants': 0,
+            'shortlisted_applicants': 0, 'selected_applicants': 0,
+            'average_final_score': 0, 'top_candidates': [],
+            'score_distribution': [0, 0, 0, 0, 0],
+            'status_labels': ['Active', 'Completed', 'Inactive'],
+            'status_counts': [0, 0, 0],
+        })
     finally:
         db.close()
 
@@ -980,7 +1823,7 @@ def get_text():
     audio_path = interview_audio_path()
     if not os.path.exists(audio_path):
         return 'No audio file received', 400
-    result = model_audio.transcribe(audio_path)
+    result = get_audio_model().transcribe(audio_path)
     segments, info = result
     print("Detected language '%s' with probability %f" % (info.language, info.language_probability))
     text = ""
@@ -1102,6 +1945,31 @@ def get_Chat_response_stream(text):
     # Check for quit intent
     quit_keywords = ['quit', 'exit', 'stop', 'end interview', 'finish']
     if any(keyword in text.lower() for keyword in quit_keywords):
+        interview_session_id = session.get("interview_session_id")
+        if interview_session_id:
+            db = get_db()
+            try:
+                interview_session = db.query(InterviewSession).filter_by(
+                    id=interview_session_id
+                ).first()
+                if interview_session:
+                    interview_session.status = "Completed"
+                    interview_session.completed_at = datetime.utcnow()
+                    for application in db.query(JobApplication).filter_by(
+                        candidate_id=interview_session.candidate_id
+                    ).all():
+                        job = db.query(Job).filter_by(id=application.job_id).first()
+                        if job and job.title.strip().lower() == (
+                            interview_session.position or ""
+                        ).strip().lower():
+                            application.status = "Interviewed"
+                    refresh_interview_application_scores(db, interview_session_id)
+                    db.commit()
+            except Exception:
+                db.rollback()
+                app.logger.exception("Failed to complete interview session")
+            finally:
+                db.close()
         yield "INTERVIEW_END"
         return
 
@@ -1237,6 +2105,10 @@ Where X, Y, Z are integers from 1-10 and feedback is a brief explanation.
                         feedback=score_data.get('feedback', '')
                     )
                     db.add(ai_score)
+                    db.flush()
+                    refresh_interview_application_scores(
+                        db, session['interview_session_id']
+                    )
                     db.commit()
                 except Exception as e:
                     db.rollback()

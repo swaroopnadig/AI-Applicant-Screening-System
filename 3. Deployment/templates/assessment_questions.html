@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ round_type|title }} Questions - {{ job.title }}</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+</head>
+<body class="bg-light">
+<main class="container py-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="h3 mb-1">{{ job.title }}: {{ round_type|title }} Questions</h1>
+            <p class="text-muted mb-0">Only enabled questions are used in candidate assessments.</p>
+        </div>
+        <a class="btn btn-outline-secondary" href="{{ url_for('admin_jobs') }}">Back to jobs</a>
+    </div>
+
+    {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+
+    <section class="card mb-4">
+        <div class="card-header">Add a multiple-choice question</div>
+        <div class="card-body">
+            <form method="post">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                <div class="form-group">
+                    <label for="category">Category</label>
+                    <input class="form-control" id="category" name="category" required maxlength="100"
+                           placeholder="e.g. Quantitative aptitude, DBMS, Python">
+                </div>
+                <div class="form-group">
+                    <label for="question">Question</label>
+                    <textarea class="form-control" id="question" name="question" rows="3" required></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="options">Answer options (one per line)</label>
+                    <textarea class="form-control" id="options" name="options" rows="5" required></textarea>
+                    <small class="form-text text-muted">Provide between 2 and 6 distinct options.</small>
+                </div>
+                <div class="form-group">
+                    <label for="correct_option">Correct option number</label>
+                    <select class="form-control" id="correct_option" name="correct_option" required>
+                        <option value="0">Option 1</option>
+                        <option value="1">Option 2</option>
+                        <option value="2">Option 3</option>
+                        <option value="3">Option 4</option>
+                        <option value="4">Option 5</option>
+                        <option value="5">Option 6</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="marks">Marks</label>
+                    <input class="form-control" type="number" id="marks" name="marks"
+                           min="0.01" max="100" step="0.01" value="1" required>
+                </div>
+                <button class="btn btn-primary" type="submit">Save question</button>
+            </form>
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="card-header">Question bank ({{ questions|length }})</div>
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead><tr><th>Question</th><th>Category</th><th>Marks</th><th>Status</th><th></th></tr></thead>
+                <tbody>
+                {% for item in questions %}
+                    <tr>
+                        <td>{{ item.question }}<br><small class="text-muted">Correct: {{ item.correct_answer }}</small></td>
+                        <td>{{ item.category }}</td>
+                        <td>{{ item.marks }}</td>
+                        <td>{{ 'Enabled' if item.enabled else 'Disabled' }}</td>
+                        <td>
+                            <form method="post" action="{{ url_for('toggle_assessment_question', question_id=item.id) }}">
+                                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                                <button class="btn btn-sm btn-outline-primary" type="submit">
+                                    {{ 'Disable' if item.enabled else 'Enable' }}
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="5" class="text-center text-muted py-4">No questions added yet.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+</main>
+</body>
+</html>

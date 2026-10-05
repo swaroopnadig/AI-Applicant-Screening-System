@@ -349,6 +349,7 @@
 
                             fetch('/upload', {
                                 method: 'POST',
+                                headers: { 'X-CSRF-Token': '{{ csrf_token }}' },
                                 body: formData
                             })
                             .then(response => {
@@ -388,6 +389,7 @@
 
                 fetch('/upload', {
                     method: 'POST',
+                    headers: { 'X-CSRF-Token': '{{ csrf_token }}' },
                     body: formData
                 })
                 .then(response => {
@@ -437,6 +439,7 @@
                 
                 fetch('/get_stream', {
                     method: 'POST',
+                    headers: { 'X-CSRF-Token': '{{ csrf_token }}' },
                     body: formData
                 })
                 .then(response => {

@@ -111,6 +111,7 @@
                         <p>Web Based Selector–Applicant Simulation Software with AI Modelled Score Generation</p>
                     </div>
                     <form action="/home" method="POST" enctype="multipart/form-data">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                         <div class="form-group">
                             <label for="username"><i class="fas fa-user mr-2"></i>Username</label>
                             <input type="text" class="form-control" id="name" name="username" placeholder="Enter your username" required>

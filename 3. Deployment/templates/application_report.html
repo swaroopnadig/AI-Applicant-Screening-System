@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Application Report - {{ candidate.name }}</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        body { background: #f3f5fb; }
+        .report { max-width: 900px; margin: 30px auto; }
+        .metric { border: 1px solid #dee2e6; border-radius: 8px; padding: 16px; height: 100%; }
+        @media print { body { background: #fff; } .no-print { display: none !important; } .report { margin: 0 auto; } }
+    </style>
+</head>
+<body>
+<main class="report card shadow-sm">
+    <div class="card-body p-4 p-md-5">
+        <div class="d-flex justify-content-between align-items-start">
+            <div>
+                <h1 class="h3">Candidate Application Report</h1>
+                <p class="text-muted">{{ job.title }} · {{ job.company }}</p>
+            </div>
+            <button class="btn btn-outline-danger no-print" type="button" onclick="window.print()">Print / Save PDF</button>
+        </div>
+        <hr>
+        <h2 class="h5">Candidate</h2>
+        <p class="mb-1"><strong>Name:</strong> {{ candidate.name }}</p>
+        <p class="mb-1"><strong>Email:</strong> {{ candidate.email or 'Not provided' }}</p>
+        <p class="mb-1"><strong>Resume:</strong> {{ candidate.resume_filename or 'Not uploaded' }}</p>
+        <p class="mb-1"><strong>Applied:</strong> {{ application.applied_at.strftime('%Y-%m-%d %H:%M') }}</p>
+        <p><strong>Status:</strong> {{ application.status }} · <strong>Eligibility:</strong> {{ application.eligibility_result or 'Not evaluated' }} · <strong>Rank:</strong> {{ rank if rank is not none else 'Not ranked yet' }}</p>
+
+        <h2 class="h5 mt-4">Round performance</h2>
+        <div class="row">
+            <div class="col-md-6 mb-3"><div class="metric"><strong>Resume screening</strong><div>{{ '%.2f'|format(application.resume_score or 0) }}/100</div></div></div>
+            <div class="col-md-6 mb-3"><div class="metric"><strong>Aptitude assessment</strong><div>{{ '%.2f'|format(aptitude.score) if aptitude else 'Not completed' }}{% if aptitude %}/100{% endif %}</div>
+                {% if aptitude %}<small class="text-muted">{{ aptitude.correct }}/{{ aptitude.total_questions }} correct · {{ '%.2f'|format(aptitude.accuracy) }}% accuracy</small>{% endif %}</div></div>
+            <div class="col-md-6 mb-3"><div class="metric"><strong>Technical assessment</strong><div>{{ '%.2f'|format(application.technical_score) if application.technical_score is not none else 'Not completed' }}{% if application.technical_score is not none %}/100{% endif %}</div></div></div>
+            <div class="col-md-6 mb-3"><div class="metric"><strong>Coding round</strong><div>{{ '%.2f'|format(application.coding_score) if application.coding_score is not none else 'Not scored' }}{% if application.coding_score is not none %}/100{% endif %}</div></div></div>
+            <div class="col-md-6 mb-3"><div class="metric"><strong>AI interview</strong><div>{{ '%.2f'|format(application.interview_score) if application.interview_score is not none else 'Not scored' }}{% if application.interview_score is not none %}/100{% endif %}</div>
+                <small class="text-muted">Normalized from the average of recorded technical, communication, and problem-solving ratings.</small></div></div>
+            <div class="col-md-6 mb-3"><div class="metric"><strong>Weighted final score</strong><div class="h4 mb-0">{{ '%.2f'|format(application.final_score) if application.final_score is not none else 'Not available' }}{% if application.final_score is not none %}/100{% endif %}</div></div></div>
+        </div>
+        <p class="small text-muted mt-3 mb-0">The final score uses the enabled-round weights configured for this job and is normalized over rounds with submitted scores. Coding code is not executed by this application; its score requires recruiter review.</p>
+        <a class="btn btn-outline-secondary no-print mt-4" href="{{ url_for('candidate_dashboard') if current_user.role == 'candidate' else url_for('job_leaderboard', job_id=job.id) }}">Back</a>
+    </div>
+</main>
+</body>
+</html>
