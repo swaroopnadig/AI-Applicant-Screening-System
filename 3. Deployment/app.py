@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session, Response, stream_with_context
+import click
 import csv
 import io
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
@@ -84,6 +85,50 @@ login_manager.init_app(app)
 login_manager.login_view = 'login'
 login_manager.login_message = 'Please log in to access this page.'
 
+
+@app.cli.command("create-admin")
+@click.option("--username", prompt=True)
+@click.option("--email", prompt=True)
+@click.password_option(confirmation_prompt=True)
+def create_admin_command(username, email, password):
+    """Create an administrator account from a trusted command line."""
+    username = sanitize_input(username)
+    email = sanitize_input(email).lower()
+    valid_password, password_message = validate_password_strength(password)
+    if not username or not re.match(r"^[a-zA-Z0-9_]+$", username):
+        raise click.ClickException(
+            "Username must contain only letters, numbers, and underscores."
+        )
+    if not validate_email(email):
+        raise click.ClickException("Enter a valid email address.")
+    if not valid_password:
+        raise click.ClickException(password_message)
+
+    db = get_db()
+    try:
+        if db.query(User).filter(
+            (User.username == username) | (User.email == email)
+        ).first():
+            raise click.ClickException("That username or email is already registered.")
+        db.add(User(
+            username=username,
+            email=email,
+            password_hash=generate_password_hash(password),
+            role="admin",
+        ))
+        db.commit()
+    except click.ClickException:
+        db.rollback()
+        raise
+    except Exception as error:
+        db.rollback()
+        app.logger.exception("Failed to create administrator account")
+        raise click.ClickException("Unable to create administrator account.") from error
+    finally:
+        db.close()
+    click.echo("Administrator account created.")
+
+
 @login_manager.user_loader
 def load_user(user_id):
     db = get_db()
@@ -107,6 +152,50 @@ def recruiter_required(f):
             if wants_json:
                 return jsonify({'error': 'Unauthorized'}), 403
             return redirect(url_for('index'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def candidate_required(f):
+    """Restrict a route to authenticated candidate accounts."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated:
+            return login_manager.unauthorized()
+        if current_user.role != "candidate":
+            return redirect(url_for("admin"))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def candidate_interview_required(f):
+    """Require an interview session that belongs to the signed-in candidate."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated:
+            return login_manager.unauthorized()
+        if current_user.role != "candidate":
+            return "Candidate access required.", 403
+        interview_session_id = session.get("interview_session_id")
+        if not interview_session_id:
+            return "No active interview session.", 403
+
+        db = get_db()
+        try:
+            candidate = db.query(Candidate).filter_by(
+                name=current_user.username
+            ).first()
+            interview_session = db.query(InterviewSession).filter_by(
+                id=interview_session_id
+            ).first()
+            if (
+                not candidate
+                or not interview_session
+                or interview_session.candidate_id != candidate.id
+            ):
+                return "No active interview session.", 403
+        finally:
+            db.close()
         return f(*args, **kwargs)
     return decorated_function
 
@@ -186,6 +275,15 @@ ALLOWED_MIME_TYPES = {
     'txt': ['text/plain']
 }
 
+APPLICATION_STATUSES = (
+    "Applied",
+    "Under Review",
+    "Shortlisted",
+    "Selected",
+    "Rejected",
+)
+
+
 def allowed_file(filename):
     """Check if file extension is allowed"""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -209,10 +307,9 @@ def validate_mime_type(file, filename):
         except UnicodeDecodeError:
             return False
     
-    # For DOCX, it's harder to validate without parsing, so we'll rely on extension
-    # but could add zip header check if needed
+    # DOCX files are ZIP packages, so reject files without a ZIP signature.
     if ext == 'docx':
-        return True
+        return header.startswith(b'PK\x03\x04')
     
     return False
 
@@ -264,26 +361,17 @@ def parse_job_form(form):
 
     try:
         minimum_experience = int(form.get("minimum_experience") or 0)
-        legacy_weights = {
-            "weight_skills": int(form.get("weight_skills") or 0),
-            "weight_experience": int(form.get("weight_experience") or 0),
-            "weight_education": int(form.get("weight_education") or 0),
-        }
         minimum_cgpa = form.get("minimum_cgpa", "").strip()
         minimum_cgpa = float(minimum_cgpa) if minimum_cgpa else None
         aptitude_time_limit = int(form.get("aptitude_time_limit") or 30)
         technical_time_limit = int(form.get("technical_time_limit") or 30)
     except (TypeError, ValueError):
-        raise ValueError("Experience, weight, CGPA, and time limit values must be numeric.")
+        raise ValueError("Experience, CGPA, and time limit values must be numeric.")
 
     if minimum_experience < 0:
         raise ValueError("Minimum experience cannot be negative.")
     if minimum_cgpa is not None and not 0 <= minimum_cgpa <= 100:
         raise ValueError("Minimum CGPA/percentage must be between 0 and 100.")
-    if any(weight < 0 or weight > 100 for weight in legacy_weights.values()):
-        raise ValueError("Existing scoring weights must each be between 0 and 100.")
-    if sum(legacy_weights.values()) != 100:
-        raise ValueError("Skills, experience, and education weights must total 100%.")
     if not 1 <= aptitude_time_limit <= 240 or not 1 <= technical_time_limit <= 240:
         raise ValueError("Assessment time limits must be between 1 and 240 minutes.")
 
@@ -318,7 +406,6 @@ def parse_job_form(form):
         "rounds_json": json.dumps(rounds),
         "aptitude_time_limit": aptitude_time_limit,
         "technical_time_limit": technical_time_limit,
-        **legacy_weights,
     }
 
 
@@ -329,8 +416,10 @@ def refresh_application_score(db, application):
         return
     rounds = parse_rounds(job.rounds_json)
     candidate = db.query(Candidate).filter_by(id=application.candidate_id).first()
-    if candidate:
+    if candidate and (candidate.resume_filename or candidate.parsed_text):
         application.resume_score = score_resume(candidate, job)
+    else:
+        application.resume_score = None
     scores = {
         "resume_screening": application.resume_score,
         "aptitude": None,
@@ -532,7 +621,7 @@ def apply_job(job_id):
             candidate_id=candidate.id,
             status=(
                 "Rejected" if job.eligibility_enabled and not eligibility["eligible"]
-                else "Eligible" if job.eligibility_enabled
+                else "Under Review" if job.eligibility_enabled
                 else "Applied"
             ),
             eligibility_result=eligibility["result"],
@@ -555,6 +644,27 @@ def candidate_dashboard():
     db = get_db()
     try:
         candidate = db.query(Candidate).filter_by(name=current_user.username).first()
+        if candidate:
+            candidate.resume_data = {}
+            if candidate.parsed_text:
+                try:
+                    resume_data = json.loads(candidate.parsed_text)
+                    if isinstance(resume_data, dict):
+                        for field in (
+                            "skills", "education", "college_name",
+                            "projects", "experience",
+                        ):
+                            value = resume_data.get(field)
+                            if isinstance(value, str):
+                                resume_data[field] = [value] if value else []
+                            elif not isinstance(value, list):
+                                resume_data[field] = []
+                        candidate.resume_data = resume_data
+                except (TypeError, ValueError):
+                    app.logger.warning(
+                        "Unable to read parsed resume data for candidate %s",
+                        candidate.id,
+                    )
         applications = []
         if candidate:
             records = db.query(JobApplication).filter_by(
@@ -770,7 +880,6 @@ def take_assessment(application_id, round_type):
                 application.assessment_score = score
             else:
                 application.technical_score = score
-            application.status = "Assessment Complete"
             refresh_application_score(db, application)
             db.commit()
             session.pop(start_key, None)
@@ -949,17 +1058,13 @@ def job_leaderboard(job_id):
 @app.route("/admin/applications/<int:application_id>/status", methods=["POST"])
 @recruiter_required
 def update_application_status(application_id):
-    allowed_statuses = {
-        "Applied", "Eligible", "Rejected", "Assessment Complete",
-        "Shortlisted", "Interviewed", "Selected",
-    }
     db = get_db()
     try:
         application = db.query(JobApplication).filter_by(id=application_id).first()
         if not application:
             return jsonify({"error": "Application not found."}), 404
         new_status = request.form.get("status", "")
-        if new_status not in allowed_statuses:
+        if new_status not in APPLICATION_STATUSES:
             return jsonify({"error": "Unsupported application status."}), 400
         application.status = new_status
         db.commit()
@@ -1111,7 +1216,7 @@ def score_coding_submission(submission_id):
         if score < 0 or score > problem.maximum_marks:
             return "Score must be between 0 and the problem's maximum marks.", 400
         submission.score = score
-        submission.execution_status = "Manually scored; sandbox not configured"
+        submission.execution_status = "Manually scored; not executed"
         application = db.query(JobApplication).filter_by(
             id=submission.application_id
         ).first()
@@ -1181,9 +1286,8 @@ def submit_coding_solution(application_id):
                     problem_id=problem.id,
                     language=language,
                     source_code=source_code,
-                    execution_status="Pending sandbox evaluation",
+                    execution_status="Stored for manual review; not executed",
                 ))
-                application.status = "Coding Submitted"
                 db.commit()
                 return redirect(url_for("candidate_dashboard"))
         submissions = db.query(CodingSubmission).filter_by(
@@ -1204,6 +1308,8 @@ def admin_jobs():
     db = get_db()
     try:
         jobs = db.query(Job).order_by(Job.created_at.desc()).all()
+        for job in jobs:
+            job.rounds = parse_rounds(job.rounds_json)
         return render_template('admin_jobs.html', jobs=jobs)
     finally:
         db.close()
@@ -1294,8 +1400,6 @@ def dashboard():
         # Get total jobs posted
         total_jobs = db.query(Job).count()
         
-        # Get total candidates evaluated (with interview sessions)
-        total_candidates = db.query(InterviewSession).distinct(InterviewSession.candidate_id).count()
         applications = db.query(JobApplication).all()
         for application in applications:
             refresh_application_score(db, application)
@@ -1320,54 +1424,59 @@ def dashboard():
         average_final_score = (
             round(sum(final_scores) / len(final_scores), 2) if final_scores else 0
         )
-        
-        # Get top-ranked candidates (with weighted scores)
-        candidates = db.query(Candidate).all()
-        candidates_with_scores = []
-        
-        # Calculate score distribution for charts
-        score_ranges = [0, 0, 0, 0, 0]  # 0-2, 2-4, 4-6, 6-8, 8-10
-        
-        for candidate in candidates:
-            latest_session = db.query(InterviewSession).filter_by(candidate_id=candidate.id).order_by(InterviewSession.created_at.desc()).first()
-            if latest_session:
-                scores = db.query(AIScore).filter_by(session_id=latest_session.id).all()
-                avg_weighted = sum(s.weighted_score for s in scores) / len(scores) if scores else 0
-                if avg_weighted > 0:
-                    candidates_with_scores.append({
-                        'name': candidate.name,
-                        'email': candidate.email,
-                        'position': latest_session.position,
-                        'avg_weighted': round(avg_weighted, 2),
-                        'session_id': latest_session.id
-                    })
-                    
-                    # Add to score distribution
-                    if avg_weighted <= 2:
-                        score_ranges[0] += 1
-                    elif avg_weighted <= 4:
-                        score_ranges[1] += 1
-                    elif avg_weighted <= 6:
-                        score_ranges[2] += 1
-                    elif avg_weighted <= 8:
-                        score_ranges[3] += 1
-                    else:
-                        score_ranges[4] += 1
-        
-        # Sort by weighted score and get top 5
-        candidates_with_scores.sort(key=lambda x: x['avg_weighted'], reverse=True)
-        top_candidates = candidates_with_scores[:5]
-        
-        # Assign ranks
-        for idx, candidate in enumerate(top_candidates):
-            candidate['rank'] = idx + 1
-        
-        # Get status distribution
-        sessions = db.query(InterviewSession).all()
-        status_counts = {'Active': 0, 'Completed': 0, 'Inactive': 0}
-        for session in sessions:
-            if session.status in status_counts:
-                status_counts[session.status] += 1
+
+        # The recruiter dashboard and leaderboard use the same application scores.
+        ranked_rows = []
+        score_ranges = [0, 0, 0, 0, 0]
+        status_counts = {status: 0 for status in APPLICATION_STATUSES}
+        for application in applications:
+            status_counts[application.status] = status_counts.get(application.status, 0) + 1
+            if application.final_score is None:
+                continue
+            candidate = db.query(Candidate).filter_by(
+                id=application.candidate_id
+            ).first()
+            job = db.query(Job).filter_by(id=application.job_id).first()
+            if not candidate or not job:
+                continue
+            ranked_rows.append({
+                "application_id": application.id,
+                "job_id": job.id,
+                "candidate_id": candidate.id,
+                "name": candidate.name,
+                "email": candidate.email,
+                "position": job.title,
+                "final_score": application.final_score,
+                "applied_at": application.applied_at,
+            })
+            range_index = min(int(application.final_score // 20), 4)
+            score_ranges[range_index] += 1
+
+        ranked_rows.sort(key=lambda row: (
+            row["job_id"], -row["final_score"], row["applied_at"],
+            row["application_id"],
+        ))
+        last_job_id = None
+        last_score = None
+        current_rank = 0
+        job_position = 0
+        for row in ranked_rows:
+            if row["job_id"] != last_job_id:
+                last_job_id = row["job_id"]
+                last_score = None
+                current_rank = 0
+                job_position = 0
+            job_position += 1
+            if row["final_score"] != last_score:
+                current_rank = job_position
+                last_score = row["final_score"]
+            row["rank"] = current_rank
+
+        top_candidates = sorted(
+            ranked_rows,
+            key=lambda row: (-row["final_score"], row["position"], row["name"]),
+        )[:5]
+        total_candidates = len({row["candidate_id"] for row in ranked_rows})
         
         dashboard_data = {
             'total_jobs': total_jobs,
@@ -1385,64 +1494,94 @@ def dashboard():
         }
         
         return render_template('dashboard.html', dashboard=dashboard_data)
-    except Exception as e:
-        print(f"Error fetching dashboard data: {e}")
-        return render_template('dashboard.html', dashboard={
-            'total_jobs': 0, 'total_candidates': 0, 'total_applicants': 0,
-            'eligible_applicants': 0, 'assessment_participants': 0,
-            'shortlisted_applicants': 0, 'selected_applicants': 0,
-            'average_final_score': 0, 'top_candidates': [],
-            'score_distribution': [0, 0, 0, 0, 0],
-            'status_labels': ['Active', 'Completed', 'Inactive'],
-            'status_counts': [0, 0, 0],
-        })
+    except Exception:
+        app.logger.exception("Failed to load recruiter dashboard")
+        return "Unable to load the recruiter dashboard. Please try again.", 500
     finally:
         db.close()
 
 @app.route("/export/csv")
 @recruiter_required
 def export_csv():
-    """Export ranked candidates data as CSV"""
+    """Export all job applications with their configured round scores."""
     db = get_db()
     try:
-        candidates = db.query(Candidate).all()
-        candidates_data = []
-        
-        for candidate in candidates:
-            latest_session = db.query(InterviewSession).filter_by(candidate_id=candidate.id).order_by(InterviewSession.created_at.desc()).first()
-            if latest_session:
-                scores = db.query(AIScore).filter_by(session_id=latest_session.id).all()
-                avg_weighted = sum(s.weighted_score for s in scores) / len(scores) if scores else 0
-                if avg_weighted > 0:
-                    candidates_data.append({
-                        'name': candidate.name,
-                        'email': candidate.email,
-                        'position': latest_session.position,
-                        'status': latest_session.status,
-                        'avg_weighted': round(avg_weighted, 2),
-                        'created_at': latest_session.created_at.strftime('%Y-%m-%d %H:%M')
-                    })
-        
-        candidates_data.sort(key=lambda x: x['avg_weighted'], reverse=True)
-        
-        for idx, candidate in enumerate(candidates_data):
-            candidate['rank'] = idx + 1
-        
-        def generate():
-            output = io.StringIO()
-            writer = csv.writer(output)
-            writer.writerow(['Rank', 'Name', 'Email', 'Position', 'Status', 'Weighted Score', 'Date'])
-            for c in candidates_data:
-                writer.writerow([c['rank'], c['name'], c['email'], c['position'], c['status'], c['avg_weighted'], c['created_at']])
-            output.seek(0)
-            yield output.getvalue()
-        
-        response = Response(generate(), mimetype='text/csv')
-        response.headers['Content-Disposition'] = 'attachment; filename=candidates_export.csv'
+        rows = []
+        for application in db.query(JobApplication).all():
+            refresh_application_score(db, application)
+            candidate = db.query(Candidate).filter_by(
+                id=application.candidate_id
+            ).first()
+            job = db.query(Job).filter_by(id=application.job_id).first()
+            if not candidate or not job:
+                continue
+            aptitude = db.query(AssessmentAttempt).filter_by(
+                application_id=application.id, round_type="aptitude"
+            ).first()
+            rows.append({
+                "application": application,
+                "candidate": candidate,
+                "job": job,
+                "aptitude_score": aptitude.score if aptitude else None,
+            })
+
+        rows.sort(key=lambda row: (
+            row["job"].id,
+            row["application"].final_score is None,
+            -(row["application"].final_score or 0),
+            row["application"].applied_at,
+            row["application"].id,
+        ))
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            "Job", "Rank", "Candidate", "Email", "Eligibility", "Resume",
+            "Aptitude", "Technical", "Coding", "AI Interview",
+            "Final Score", "Status", "Applied At",
+        ])
+        last_job_id = None
+        last_score = None
+        current_rank = 0
+        job_position = 0
+        for row in rows:
+            application = row["application"]
+            job = row["job"]
+            if job.id != last_job_id:
+                last_job_id = job.id
+                last_score = None
+                current_rank = 0
+                job_position = 0
+            rank = ""
+            if application.final_score is not None:
+                job_position += 1
+                if application.final_score != last_score:
+                    current_rank = job_position
+                    last_score = application.final_score
+                rank = current_rank
+            writer.writerow([
+                job.title,
+                rank,
+                row["candidate"].name,
+                row["candidate"].email,
+                application.eligibility_result or "",
+                application.resume_score if application.resume_score is not None else "",
+                row["aptitude_score"] if row["aptitude_score"] is not None else "",
+                application.technical_score if application.technical_score is not None else "",
+                application.coding_score if application.coding_score is not None else "",
+                application.interview_score if application.interview_score is not None else "",
+                application.final_score if application.final_score is not None else "",
+                application.status,
+                application.applied_at.strftime("%Y-%m-%d %H:%M"),
+            ])
+        db.commit()
+        response = Response(output.getvalue(), mimetype="text/csv")
+        response.headers["Content-Disposition"] = (
+            "attachment; filename=applications_export.csv"
+        )
         return response
-    except Exception as e:
-        print(f"Error exporting CSV: {e}")
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        app.logger.exception("Failed to export application CSV")
+        return jsonify({"error": "Unable to export applications."}), 500
     finally:
         db.close()
 
@@ -1656,12 +1795,15 @@ def candidate_details(session_id):
         db.close()
 
 @app.route("/home", methods=["GET", "POST"])
+@candidate_required
 def home():
     if request.method == "POST":
-        username = request.form["username"]
-        pos = request.form["position"]
-        print(username)
-        print(pos)
+        username = current_user.username
+        pos = (request.form.get("position") or "").strip()
+        if not pos:
+            return render_template(
+                "index.html", error="Choose an interview position."
+            ), 400
         session_id = start_interview_browser_session(username, pos)
         display_name = username
         
@@ -1787,25 +1929,29 @@ def home():
                     return render_template('home.html', name=display_name, error=f"An error occurred while processing your resume. Please try again.")
         
         return render_template('home.html', name=display_name, resume_data=parsed_data)
-    return render_template('home.html', name=session.get('candidate_name'))
+    return render_template('index.html', name=current_user.username)
 
 @app.route("/get_flag", methods=["GET"])
+@candidate_interview_required
 def get_flag():
     return jsonify({'flag': session.get('grammar_feedback', '')})
 
 @app.route("/get", methods=["GET", "POST"])
+@candidate_interview_required
 def chat_():
     msg = request.form["msg"]
     input = msg
     return get_Chat_response(input)
 
 @app.route("/get_stream", methods=["POST"])
+@candidate_interview_required
 def chat_stream():
     """Streaming endpoint for real-time response"""
     msg = request.form["msg"]
     return Response(stream_with_context(get_Chat_response_stream(msg)), mimetype='text/plain')
 
 @app.route('/upload', methods=['POST'])
+@candidate_interview_required
 def upload_audio():
     if 'audio' in request.files:
         audio_file = request.files['audio']
@@ -1819,6 +1965,7 @@ def upload_audio():
 DEFAULT_CHUNK_LENGTH = 10
 
 @app.route('/get_text', methods=['GET'])
+@candidate_interview_required
 def get_text():
     audio_path = interview_audio_path()
     if not os.path.exists(audio_path):
@@ -1834,6 +1981,7 @@ def get_text():
     return text
 
 @app.route('/get_pace', methods=['GET'])
+@candidate_interview_required
 def get_pace():
     flag = session.get('interview_flag', 0)
     pace = session.get('speaking_pace', 0.0)
@@ -1955,14 +2103,6 @@ def get_Chat_response_stream(text):
                 if interview_session:
                     interview_session.status = "Completed"
                     interview_session.completed_at = datetime.utcnow()
-                    for application in db.query(JobApplication).filter_by(
-                        candidate_id=interview_session.candidate_id
-                    ).all():
-                        job = db.query(Job).filter_by(id=application.job_id).first()
-                        if job and job.title.strip().lower() == (
-                            interview_session.position or ""
-                        ).strip().lower():
-                            application.status = "Interviewed"
                     refresh_interview_application_scores(db, interview_session_id)
                     db.commit()
             except Exception:
@@ -2080,7 +2220,11 @@ Candidate Answer: {text}
 Evaluate the answer and return ONLY a JSON object with this exact format:
 {{"technical_accuracy": X, "communication": Y, "problem_solving": Z, "feedback": "..."}}
 
-Where X, Y, Z are integers from 1-10 and feedback is a brief explanation.
+Score each dimension from 1-10:
+- technical_accuracy: correctness and quality of the technical/content details.
+- communication: relevance to the question and whether the answer stays on topic.
+- problem_solving: completeness of the explanation and reasoning.
+Feedback must briefly explain the scores. Do not infer personality, emotion, or honesty.
 """
 
     try:
@@ -2090,19 +2234,27 @@ Where X, Y, Z are integers from 1-10 and feedback is a brief explanation.
         json_match = re.search(r'\{.*\}', score_response, re.DOTALL)
         if json_match:
             score_data = json.loads(json_match.group())
-            
-            # Save score to database
-            if 'interview_session_id' in session:
+            score_fields = (
+                "technical_accuracy", "communication", "problem_solving"
+            )
+            valid_ratings = all(
+                type(score_data.get(field)) is int
+                and 1 <= score_data[field] <= 10
+                for field in score_fields
+            )
+            if not valid_ratings or not isinstance(score_data.get("feedback"), str):
+                app.logger.warning("Gemini returned an invalid interview score.")
+            elif 'interview_session_id' in session:
                 db = get_db()
                 try:
                     ai_score = AIScore(
                         session_id=session['interview_session_id'],
                         question=previous_question if flag > 1 else "Tell me about yourself",
                         answer=text,
-                        technical_accuracy=score_data.get('technical_accuracy', 5),
-                        communication=score_data.get('communication', 5),
-                        problem_solving=score_data.get('problem_solving', 5),
-                        feedback=score_data.get('feedback', '')
+                        technical_accuracy=score_data["technical_accuracy"],
+                        communication=score_data["communication"],
+                        problem_solving=score_data["problem_solving"],
+                        feedback=score_data["feedback"]
                     )
                     db.add(ai_score)
                     db.flush()
@@ -2112,11 +2264,11 @@ Where X, Y, Z are integers from 1-10 and feedback is a brief explanation.
                     db.commit()
                 except Exception as e:
                     db.rollback()
-                    print(f"Error saving score: {e}")
+                    app.logger.exception("Failed to save interview score")
                 finally:
                     db.close()
     except Exception as e:
-        print(f"Error generating score: {e}")
+        app.logger.exception("Failed to generate interview score")
 
     # Grammar check (legacy)
     feed = grammar_checker(text)

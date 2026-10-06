@@ -169,7 +169,6 @@
                 </div>
                 <div class="nav-links">
                     <a href="/admin/jobs"><i class="fas fa-briefcase mr-1"></i>Jobs</a>
-                    <a href="/admin/weightage"><i class="fas fa-sliders-h mr-1"></i>Weightage</a>
                     <a href="/admin"><i class="fas fa-users mr-1"></i>Candidates</a>
                 </div>
             </div>
@@ -231,7 +230,7 @@
                     </div>
                     <div class="col-md-6">
                         <div class="chart-card">
-                            <h5><i class="fas fa-chart-pie mr-2"></i>Interview Status Distribution</h5>
+                            <h5><i class="fas fa-chart-pie mr-2"></i>Application Status Distribution</h5>
                             <canvas id="statusDistributionChart"></canvas>
                         </div>
                     </div>
@@ -251,21 +250,21 @@
                                 <th>Name</th>
                                 <th>Email</th>
                                 <th>Position</th>
-                                <th>Weighted Score</th>
+                                <th>Final Score /100</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for candidate in dashboard.top_candidates %}
-                            <tr onclick="window.location.href='/admin/candidate/{{ candidate.session_id }}'">
+                            <tr>
                                 <td>
                                     <span class="rank-badge rank-{{ candidate.rank }}">{{ candidate.rank }}</span>
                                 </td>
-                                <td><strong>{{ candidate.name }}</strong></td>
+                                <td><strong><a href="{{ url_for('application_report', application_id=candidate.application_id) }}">{{ candidate.name }}</a></strong></td>
                                 <td>{{ candidate.email or 'N/A' }}</td>
                                 <td>{{ candidate.position }}</td>
                                 <td>
-                                    <span class="badge {% if candidate.avg_weighted >= 7 %}badge-success{% elif candidate.avg_weighted >= 5 %}badge-warning{% else %}badge-danger{% endif %}">
-                                        {{ candidate.avg_weighted }}
+                                    <span class="badge {% if candidate.final_score >= 80 %}badge-success{% elif candidate.final_score >= 60 %}badge-warning{% else %}badge-danger{% endif %}">
+                                        {{ '%.2f'|format(candidate.final_score) }}
                                     </span>
                                 </td>
                             </tr>
@@ -292,10 +291,10 @@
         const scoreDistributionChart = new Chart(scoreCtx, {
             type: 'bar',
             data: {
-                labels: ['0-2', '2-4', '4-6', '6-8', '8-10'],
+                labels: ['0-20', '20-40', '40-60', '60-80', '80-100'],
                 datasets: [{
                     label: 'Number of Candidates',
-                    data: {{ dashboard.score_distribution or [0, 0, 0, 0, 0] }},
+                    data: {{ (dashboard.score_distribution or [0, 0, 0, 0, 0])|tojson }},
                     backgroundColor: [
                         'rgba(231, 76, 60, 0.8)',
                         'rgba(243, 156, 18, 0.8)',
@@ -331,23 +330,27 @@
             }
         });
         
-        // Status Distribution Chart
+        // Application Status Distribution Chart
         const statusCtx = document.getElementById('statusDistributionChart').getContext('2d');
         const statusDistributionChart = new Chart(statusCtx, {
             type: 'doughnut',
             data: {
-                labels: {{ dashboard.status_labels or ['Active', 'Completed', 'Inactive'] | safe }},
+                labels: {{ (dashboard.status_labels or ['Active', 'Completed', 'Inactive'])|tojson }},
                 datasets: [{
-                    data: {{ dashboard.status_counts or [0, 0, 0] }},
+                    data: {{ (dashboard.status_counts or [0, 0, 0])|tojson }},
                     backgroundColor: [
-                        'rgba(39, 174, 96, 0.8)',
                         'rgba(52, 152, 219, 0.8)',
-                        'rgba(149, 165, 166, 0.8)'
+                        'rgba(243, 156, 18, 0.8)',
+                        'rgba(155, 89, 182, 0.8)',
+                        'rgba(39, 174, 96, 0.8)',
+                        'rgba(231, 76, 60, 0.8)'
                     ],
                     borderColor: [
-                        'rgba(39, 174, 96, 1)',
                         'rgba(52, 152, 219, 1)',
-                        'rgba(149, 165, 166, 1)'
+                        'rgba(243, 156, 18, 1)',
+                        'rgba(155, 89, 182, 1)',
+                        'rgba(39, 174, 96, 1)',
+                        'rgba(231, 76, 60, 1)'
                     ],
                     borderWidth: 1
                 }]

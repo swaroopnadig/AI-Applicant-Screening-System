@@ -136,7 +136,7 @@
                                 <th>Company</th>
                                 <th>Location</th>
                                 <th>Experience</th>
-                                <th>Weightage</th>
+                                <th>Evaluation Rounds</th>
                                 <th>Created</th>
                                 <th>Actions</th>
                             </tr>
@@ -149,9 +149,9 @@
                                 <td>{{ job.location or 'Remote' }}</td>
                                 <td>{{ job.minimum_experience }}+ years</td>
                                 <td>
-                                    <small>S: {{ job.weight_skills }}%</small><br>
-                                    <small>E: {{ job.weight_experience }}%</small><br>
-                                    <small>Ed: {{ job.weight_education }}%</small>
+                                    {% for round_name, round_config in job.rounds.items() if round_config.enabled %}
+                                    <small>{{ round_name.replace('_', ' ')|title }}: {{ round_config.weight|int }}%</small><br>
+                                    {% endfor %}
                                 </td>
                                 <td>{{ job.created_at.strftime('%Y-%m-%d') }}</td>
                                 <td>

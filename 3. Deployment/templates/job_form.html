@@ -92,19 +92,6 @@
             color: #333;
             margin-bottom: 15px;
         }
-        .weightage-inputs {
-            display: flex;
-            gap: 15px;
-            flex-wrap: wrap;
-        }
-        .weightage-input {
-            flex: 1;
-            min-width: 150px;
-        }
-        .weightage-input label {
-            font-size: 13px;
-            color: #666;
-        }
         .help-text {
             font-size: 12px;
             color: #666;
@@ -212,25 +199,6 @@
                             <div class="col-md-6">
                                 <label for="technical_time_limit">Technical time limit (minutes)</label>
                                 <input type="number" class="form-control" id="technical_time_limit" name="technical_time_limit" min="1" max="240" value="{{ values.get('technical_time_limit', job.technical_time_limit if job else 30) }}">
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="weightage-section">
-                        <h5><i class="fas fa-balance-scale mr-2"></i>Scoring Weightage</h5>
-                        <p class="help-text mb-3">Total must equal 100%</p>
-                        <div class="weightage-inputs">
-                            <div class="weightage-input">
-                                <label for="weight_skills">Skills (%)</label>
-                                <input type="number" class="form-control" id="weight_skills" name="weight_skills" min="0" max="100" value="{{ values.get('weight_skills', job.weight_skills if job else 40) }}">
-                            </div>
-                            <div class="weightage-input">
-                                <label for="weight_experience">Experience (%)</label>
-                                <input type="number" class="form-control" id="weight_experience" name="weight_experience" min="0" max="100" value="{{ values.get('weight_experience', job.weight_experience if job else 30) }}">
-                            </div>
-                            <div class="weightage-input">
-                                <label for="weight_education">Education (%)</label>
-                                <input type="number" class="form-control" id="weight_education" name="weight_education" min="0" max="100" value="{{ values.get('weight_education', job.weight_education if job else 30) }}">
                             </div>
                         </div>
                     </div>

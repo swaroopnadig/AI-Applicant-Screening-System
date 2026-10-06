@@ -20,6 +20,10 @@ Set a strong `SECRET_KEY` in `.env`. `GEMINI_API_KEY` is only needed when using 
 
 The default SQLite database is `interview.db` in this directory. Startup creates newly introduced tables and safely adds the recruitment columns to existing SQLite tables; it does not drop or replace existing records. `DATABASE_URL` can point to another SQLAlchemy database, but migrating an existing non-SQLite schema must be done separately.
 
+### Create the first administrator
+
+Public registration creates candidate accounts only. From the `3. Deployment` directory, run `flask --app app create-admin` and follow the prompts to create an administrator account. The password is entered securely at the prompt; do not put real credentials in source code or commit them.
+
 ## Recruiter workflow
 
 1. Sign in as a recruiter/admin and open **Jobs**.
@@ -35,8 +39,9 @@ Public registration creates candidate accounts only. Recruiter/admin accounts mu
 ## Scoring and safety notes
 
 - Scores are stored on a 0-100 scale. The configured weighted average uses enabled rounds with submitted scores and renormalizes across the scores currently available; an uncompleted round is not silently treated as zero.
+- Application statuses are `Applied`, `Under Review`, `Shortlisted`, `Selected`, and `Rejected`. Eligibility is displayed separately from recruiter-controlled decisions.
 - Eligibility extraction is best-effort and uses resume text plus structured fields. CGPA/percentage comparisons use the same numeric scale as the job threshold; candidates with missing required information are marked ineligible when filtering is enabled.
 - Skill equivalence uses a small transparent synonym map and keyword evidence; it is not an advanced semantic/ML model.
 - Python/Java coding submissions are stored but **never executed** by this application. Recruiters must score them manually. Do not treat the optional test-case JSON as executed evaluation; production evaluation requires an isolated sandbox.
-- AI interview scoring depends on the configured Gemini API and returns model-generated ratings; it does not infer emotion, confidence, personality, or deception.
+- AI interview scoring depends on the configured Gemini API and requests ratings for technical/content quality, relevance, and completeness; it does not infer emotion, confidence, personality, or deception. A compatible `google-generativeai` installation and valid API key are required.
 - All POST/PUT/PATCH/DELETE requests require a session-bound CSRF token. The legacy logout link is still a GET endpoint and should be converted to POST for strict method safety. Configure HTTPS and a strong secret for deployment.

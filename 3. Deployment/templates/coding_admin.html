@@ -30,7 +30,11 @@
                     <div class="form-group col-md-6"><label for="sample_input">Sample input</label><textarea class="form-control" id="sample_input" name="sample_input" rows="2"></textarea></div>
                     <div class="form-group col-md-6"><label for="sample_output">Sample output</label><textarea class="form-control" id="sample_output" name="sample_output" rows="2"></textarea></div>
                 </div>
-                <div class="form-group"><label for="test_cases">Test cases (JSON array)</label><textarea class="form-control" id="test_cases" name="test_cases" rows="3">[]</textarea></div>
+                <div class="form-group">
+                    <label for="test_cases">Reference test cases (JSON array)</label>
+                    <textarea class="form-control" id="test_cases" name="test_cases" rows="3">[]</textarea>
+                    <small class="form-text text-muted">Saved for reference only; submitted code is not executed or checked against these cases.</small>
+                </div>
                 <div class="form-group"><label for="maximum_marks">Maximum marks</label><input class="form-control" id="maximum_marks" name="maximum_marks" type="number" min="1" max="1000" value="100" required></div>
                 <button class="btn btn-primary" type="submit">Save problem</button>
             </form>

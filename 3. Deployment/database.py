@@ -140,7 +140,7 @@ class JobApplication(Base):
     job_id = Column(Integer, ForeignKey("jobs.id"))
     candidate_id = Column(Integer, ForeignKey("candidates.id"))
     applied_at = Column(DateTime, default=datetime.utcnow)
-    status = Column(String(20), default="Applied")  # Applied, Reviewing, Interviewed, Rejected, Hired
+    status = Column(String(20), default="Applied")
     eligibility_result = Column(String(20), nullable=True)
     eligibility_details = Column(Text, nullable=True)
     resume_score = Column(Float, nullable=True)
@@ -207,7 +207,7 @@ class CodingProblem(Base):
 
 
 class CodingSubmission(Base):
-    """Stored candidate code for later evaluation in an isolated sandbox."""
+    """Candidate code stored for recruiter review and never executed."""
     __tablename__ = "coding_submissions"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -215,7 +215,7 @@ class CodingSubmission(Base):
     problem_id = Column(Integer, ForeignKey("coding_problems.id"), nullable=False, index=True)
     language = Column(String(20), nullable=False)
     source_code = Column(Text, nullable=False)
-    execution_status = Column(String(100), nullable=False, default="Pending sandbox evaluation")
+    execution_status = Column(String(100), nullable=False, default="Stored for manual review; not executed")
     score = Column(Float, nullable=True)
     submitted_at = Column(DateTime, default=datetime.utcnow)
 
@@ -263,6 +263,22 @@ def _upgrade_existing_sqlite_schema():
                     connection.exec_driver_sql(
                         "ALTER TABLE {} ADD COLUMN {} {}".format(table, name, definition)
                     )
+        connection.exec_driver_sql(
+            """UPDATE job_applications
+               SET status = CASE
+                   WHEN status = 'Hired' THEN 'Selected'
+                   ELSE 'Under Review'
+               END
+               WHERE status IN (
+                   'Eligible', 'Reviewing', 'Assessment Complete',
+                   'Coding Submitted', 'Interviewed', 'Hired'
+               )"""
+        )
+        connection.exec_driver_sql(
+            """UPDATE coding_submissions
+               SET execution_status = 'Stored for manual review; not executed'
+               WHERE execution_status = 'Pending sandbox evaluation'"""
+        )
 
 
 def get_db():

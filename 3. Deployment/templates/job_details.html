@@ -191,22 +191,6 @@
                 </div>
                 
                 <div class="job-weightage">
-                    <h4><i class="fas fa-balance-scale mr-2"></i>Profile Scoring Weightage</h4>
-                    <div class="weightage-item">
-                        <span>Skills</span>
-                        <span>{{ job.weight_skills }}%</span>
-                    </div>
-                    <div class="weightage-item">
-                        <span>Experience</span>
-                        <span>{{ job.weight_experience }}%</span>
-                    </div>
-                    <div class="weightage-item">
-                        <span>Education</span>
-                        <span>{{ job.weight_education }}%</span>
-                    </div>
-                </div>
-
-                <div class="job-weightage">
                     <h4><i class="fas fa-route mr-2"></i>Recruitment Process</h4>
                     {% for round_name, round_config in job.rounds.items() %}
                     {% if round_config.enabled %}
