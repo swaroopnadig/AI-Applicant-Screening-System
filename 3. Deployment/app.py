@@ -2320,4 +2320,10 @@ def answer_checker(text,question):
     return output
 
 if __name__ == '__main__':
-    app.run()
+    from waitress import serve
+
+    serve(
+        app,
+        host=os.getenv("HOST", "0.0.0.0"),
+        port=int(os.getenv("PORT", "5000")),
+    )

@@ -237,6 +237,9 @@
                 <div class="stat-value" id="res">--</div>
             </div>
         </div>
+        <div class="alert alert-info mt-3" role="status">
+            Gemini interview questions and scoring are used when configured. If Gemini is unavailable, the application uses a basic rule-based fallback that does not verify technical correctness.
+        </div>
         {% if error %}
         <div class="alert alert-danger mt-3" role="alert">
             <i class="fas fa-exclamation-triangle mr-2"></i>{{ error }}
