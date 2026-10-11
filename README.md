@@ -1,8 +1,10 @@
-# Tech-Enhanced-AI-Interview-Learning-Platform
+# AI Applicant Screening System
 
-## Chatbot Interviewer 
+## Current web application
 
-The Chatbot Interviewer is a conversational AI system designed to engage in natural language interactions with users, simulating the experience of an interview. The chatbot is powered by the Mistral language model, which has been fine-tuned to provide relevant and engaging questions based on the user's responses. The model also gives basic corrections in the grammers of the Candidate using Fine Tuned Mistral.
+The current Flask application supports candidate registration, resume parsing, job applications, eligibility checks, configurable assessments, interview scoring, and recruiter review. Interview prompts and ratings use the configured Gemini API when available; without a compatible Gemini setup, the app uses a disclosed rule-based fallback. Resume matching is heuristic, and the app does not run candidate code or make hiring decisions automatically.
+
+The model-training material later in this README documents project experiments; it is not the model-serving path used by the current Flask application.
 
 ## Project Pipeline Diagram  :open_file_folder:
 

@@ -1,40 +1,44 @@
 # Project Progress
 
 ## Current phase
-GitHub and Render readiness audit — changes verified; awaiting user approval to commit/push
+Final project report updated — local verification complete; Render remains untested
 
 ## Git state
 - Branch: `agents/is-my-projects-rendering-complete`
 - Remote: `origin` (`swaroopnadig/AI-Applicant-Screening-System`)
-- No upstream branch is configured.
-- Nothing has been committed, pushed, or deployed. The verified 13-file allowlist is staged, including the deletion of `3. Deployment/test_resume.txt`; its local ignored copy is preserved. No unstaged or untracked changes remain.
+- Commit: `337d872b` (`Prepare AI applicant screening system for deployment`), pushed to `origin/agents/is-my-projects-rendering-complete`.
+- The local `3. Deployment/test_resume.txt` copy is ignored and preserved; its tracked deletion is in the commit. Older history was not rewritten.
+- The final report edit is currently uncommitted. No deployment has been performed.
 
 ## Completed
 - Preserved the existing Flask features and prior verified candidate/recruiter workflow.
 - Added Waitress startup using `HOST`/`PORT`, a tested and disclosed no-key interview fallback, and pinned Waitress/Gemini dependencies.
 - Repaired the root `.gitignore` text encoding/content and added explicit ignores for local secrets, databases, upload folders, virtual environments, caches, generated audio, and the local resume sample. Kept `.env.example` templates trackable.
-- Per user direction, `3. Deployment/test_resume.txt` is preserved locally, ignored, and staged for deletion from the next commit. No history rewrite will be performed; older Git history still contains the placeholder-looking sample.
+- Per user direction, `3. Deployment/test_resume.txt` remains preserved locally and ignored; its tracked deletion was included in pushed commit `337d872b`. No history rewrite was performed, so older commits still contain the placeholder-looking sample.
 - Added a web-service-specific pinned `3. Deployment/requirements.txt` that avoids unrelated model-training and desktop-microphone packages in the Render build.
 - Changed the deployment runtime from Python 3.12.0 to Python 3.11.9 to match the pinned Torch 2.1.0 requirement in the repository-wide environment and documented Render build/start commands, required secrets, and persistent storage configuration.
 - Identified NLTK `stopwords` and `wordnet` data required by resume parsing and added downloads to clean local setup and the Render build command.
 - Verified the NLTK corpus download command succeeds in the current local environment.
 - Confirmed Render persistent disks require a paid web service and documented that constraint.
 - Clarified that Gemini is optional and that the rule-based fallback is not a technical correctness evaluator.
+- Updated the existing root `PROJECT_FUNCTIONALITY_REPORT.md` as the single guide-ready status/report document; added verified-status labels, actual scoring details, setup/deployment status, limitations, and viva questions. No duplicate final report was created.
+- Corrected the root README overview so it does not describe the current Flask app as serving a fine-tuned Mistral model; retained the Mistral material as historical/training reference.
 
 ## Verified tests
-- Latest rerun: `python -m pytest tests -q` from `3. Deployment`: 9 passed (Python 3.8 dependency deprecation warnings only).
+- Latest rerun for the final report: `python -m pytest tests -q` from `3. Deployment`: 9 passed (Python 3.8 dependency deprecation warnings only).
 - Latest rerun: `python -m compileall -q app.py model.py tests` from `3. Deployment`: passed.
 - Latest rerun: `python -m pip check`: no broken installed requirements.
 - `git diff HEAD --check` and `git diff --cached --check`: passed.
 - Secret-signature scan found no live-key/token/private-key matches in changed files. `.env`, database, uploads, virtualenv, Python cache, and the local resume sample ignore probes all resolve to ignore rules; `.env.example` files remain trackable.
-- The sample contents look synthetic (`John Doe`, `example.com`, generic 555 phone), but authenticity cannot be guaranteed. The staged deletion excludes it from the next commit; pushing does not erase older Git history. No history rewrite was requested or performed.
+- The sample contents look synthetic (`John Doe`, `example.com`, generic 555 phone), but authenticity cannot be guaranteed. Its deletion is in the current pushed commit; older Git history remains unchanged.
 - App startup previously verified with Waitress on an isolated port; isolated end-to-end application workflow and no-key fallback were previously verified.
-- Changes have not been committed, pushed, or deployed. The sample-resume removal is staged only so the local sample is excluded from the next commit.
+- The final report and progress-document updates are uncommitted. No deployment has been performed.
 
 ## Current limitations
 - No `GEMINI_API_KEY` is configured, so live Gemini generation/scoring could not be verified. The no-key fallback passed tests and was exercised in the isolated interview workflow. This local Python 3.8 environment has `google-generativeai==0.1.0rc1`, not the pinned 0.3.0 SDK; the Render-specific pinned dependency has not been installed or verified here.
 - This machine has Python 3.8, 3.9, 3.12, and 3.14 launchers but no Python 3.11 installation; the Python 3.11.9 Render runtime and clean dependency installation could not be run locally.
 - A real Render build/deployment has not been run. Render must use Root Directory `3. Deployment`, build command `pip install -r requirements.txt && python -m nltk.downloader stopwords wordnet`, and start command `python app.py`.
+- Render is not deployed/live-tested; no service URL or Render build/runtime logs are available.
 - Render SQLite and resume persistence require a paid web service with an attached disk mounted at `/var/data`; otherwise local data/uploads can be lost on restart or redeploy. Provisioning the disk and verifying persistence depends on Render account/service configuration.
 - Python 3.8 emits dependency end-of-support/deprecation warnings; project tests pass in this environment.
 - PDF and DOCX were verified at the parser layer; the end-to-end upload used TXT.
